@@ -79,7 +79,7 @@ const CUBE_FACES: &[([[f32; 3]; 4], f32)] = &[
     // +X
     (
         [[1., -1., -1.], [1., -1., 1.], [1., 1., 1.], [1., 1., -1.]],
-        0.66,
+        0.62,
     ),
     // -X
     (
@@ -89,7 +89,7 @@ const CUBE_FACES: &[([[f32; 3]; 4], f32)] = &[
             [-1., 1., 1.],
             [-1., 1., -1.],
         ],
-        0.50,
+        0.45,
     ),
     // +Y
     (
@@ -210,6 +210,11 @@ impl Stage {
             shader,
             PipelineParams {
                 primitive_type: PrimitiveType::Lines,
+                // test against the cube so lines behind it are hidden, but
+                // never write depth: the wireframe must not occlude itself
+                // or the faces drawn after it
+                depth_test: Comparison::LessOrEqual,
+                depth_write: false,
                 ..Default::default()
             },
         );
@@ -220,7 +225,13 @@ impl Stage {
                 VertexAttribute::new("in_color", VertexFormat::Float4),
             ],
             shader,
-            PipelineParams::default(),
+            // without this the faces would paint in buffer order and back
+            // faces (drawn later) would cover front ones
+            PipelineParams {
+                depth_write: true,
+                depth_test: Comparison::LessOrEqual,
+                ..Default::default()
+            },
         );
         let text_pipeline = ctx.new_pipeline(
             &[BufferLayout::default()],
@@ -293,10 +304,10 @@ impl Stage {
     }
 
     fn view_projection(&self, width: f32, height: f32) -> Mat4 {
-        // Orthographic 3/4 view from the (+X, -Y, +Z) octant, Z up: the
+        // Orthographic 3/4 view from the (+X, +Y, +Z) octant, Z up: the
         // "Cartesian" look where the cube keeps its right angles.
-        let eye = Vec3::new(4.5, -4.5, 3.4);
-        let view = glam::camera::rh::view::look_at_mat4(eye, Vec3::ZERO, Vec3::Z);
+        let eye = Vec3::new(4.5, 4.5, 3.4);
+        let view = view_matrix(eye, Vec3::ZERO);
 
         let half = 4.4;
         let aspect = width / height;
@@ -386,13 +397,16 @@ impl EventHandler for Stage {
         self.ctx.apply_bindings(&self.axes_bindings);
         self.ctx.draw(0, 6, 1);
 
-        self.ctx.apply_bindings(&self.edges_bindings);
-        self.ctx.draw(0, 24, 1);
-
         self.ctx.apply_pipeline(&self.cube_pipeline);
         self.ctx.apply_bindings(&self.cube_bindings);
         self.ctx
             .apply_uniforms(UniformsSource::table(&shader::Uniforms { mvp }));
+        // 6 faces x 6 vertices (two triangles each)
+        self.ctx.draw(0, 36, 1);
+
+        // wireframe over the shaded faces, depth-tested against them
+        self.ctx.apply_pipeline(&self.line_pipeline);
+        self.ctx.apply_bindings(&self.edges_bindings);
         self.ctx.draw(0, 24, 1);
 
         // labels on top, in screen space
@@ -412,6 +426,31 @@ impl EventHandler for Stage {
         self.ctx.end_render_pass();
         self.ctx.commit_frame();
     }
+}
+
+/// View matrix for a right-handed, Z-up Cartesian world.
+///
+/// The backends end in a y-up clip space with the camera looking down -Z.
+/// This builds the world-to-view rotation/translation explicitly instead of
+/// hiding the convention inside a look-at helper:
+///
+///   forward = normalize(target - eye)
+///   right   = normalize(forward x world_up), world_up = +Z
+///   up      = right x forward
+///
+/// so the world axes keep their right-handed relation on screen: +Z up,
+/// depth increasing away from the eye, and no axis flipping between the
+/// Cartesian scene and what the rasterizer receives.
+fn view_matrix(eye: Vec3, target: Vec3) -> Mat4 {
+    let forward = (target - eye).normalize();
+    let right = forward.cross(Vec3::Z).normalize();
+    let up = right.cross(forward);
+    Mat4::from_cols_array_2d(&[
+        [right.x, up.x, -forward.x, 0.0],
+        [right.y, up.y, -forward.y, 0.0],
+        [right.z, up.z, -forward.z, 0.0],
+        [-right.dot(eye), -up.dot(eye), forward.dot(eye), 1.0],
+    ])
 }
 
 fn main() {
