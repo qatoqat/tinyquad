@@ -99,6 +99,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The container image ships a prebuilt toolchain older than cargo 1.85,
+      # which cannot parse the 2024 edition. Update it (keeping the Android
+      # std targets already installed in the image) before building.
+      - name: Update Rust toolchain
+        run: |
+          if command -v rustup >/dev/null 2>&1; then
+            rustup update stable
+            rustup default stable
+          else
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+          rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+          cargo --version
+
       - name: cargo quad-apk
         run: |
           cargo quad-apk build
