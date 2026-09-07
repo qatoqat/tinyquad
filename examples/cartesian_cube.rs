@@ -79,7 +79,7 @@ const CUBE_FACES: &[([[f32; 3]; 4], f32)] = &[
     // +X
     (
         [[1., -1., -1.], [1., -1., 1.], [1., 1., 1.], [1., 1., -1.]],
-        0.62,
+        0.45,
     ),
     // -X
     (
@@ -89,12 +89,12 @@ const CUBE_FACES: &[([[f32; 3]; 4], f32)] = &[
             [-1., 1., 1.],
             [-1., 1., -1.],
         ],
-        0.45,
+        0.62,
     ),
     // +Y
     (
         [[1., 1., -1.], [1., 1., 1.], [-1., 1., 1.], [-1., 1., -1.]],
-        0.74,
+        0.55,
     ),
     // -Y
     (
@@ -104,7 +104,7 @@ const CUBE_FACES: &[([[f32; 3]; 4], f32)] = &[
             [-1., -1., 1.],
             [-1., -1., -1.],
         ],
-        0.58,
+        0.74,
     ),
 ];
 
@@ -304,9 +304,10 @@ impl Stage {
     }
 
     fn view_projection(&self, width: f32, height: f32) -> Mat4 {
-        // Orthographic 3/4 view from the (+X, +Y, +Z) octant, Z up: the
-        // "Cartesian" look where the cube keeps its right angles.
-        let eye = Vec3::new(4.5, 4.5, 3.4);
+        // Orthographic 3/4 view from the (-X, -Y, +Z) octant, Z up: the
+        // classic Blender-default direction, so +X falls to the right and
+        // +Y to the left and the frame reads right-handed on screen.
+        let eye = Vec3::new(-4.5, -4.5, 3.4);
         let view = view_matrix(eye, Vec3::ZERO);
 
         let half = 4.4;
