@@ -79,7 +79,7 @@ const CUBE_FACES: &[([[f32; 3]; 4], f32)] = &[
     // +X
     (
         [[1., -1., -1.], [1., -1., 1.], [1., 1., 1.], [1., 1., -1.]],
-        0.45,
+        0.74,
     ),
     // -X
     (
@@ -89,12 +89,12 @@ const CUBE_FACES: &[([[f32; 3]; 4], f32)] = &[
             [-1., 1., 1.],
             [-1., 1., -1.],
         ],
-        0.62,
+        0.45,
     ),
     // +Y
     (
         [[1., 1., -1.], [1., 1., 1.], [-1., 1., 1.], [-1., 1., -1.]],
-        0.55,
+        0.45,
     ),
     // -Y
     (
@@ -104,7 +104,7 @@ const CUBE_FACES: &[([[f32; 3]; 4], f32)] = &[
             [-1., -1., 1.],
             [-1., -1., -1.],
         ],
-        0.74,
+        0.62,
     ),
 ];
 
@@ -304,10 +304,10 @@ impl Stage {
     }
 
     fn view_projection(&self, width: f32, height: f32) -> Mat4 {
-        // Orthographic 3/4 view from the (-X, -Y, +Z) octant, Z up: the
-        // classic Blender-default direction, so +X falls to the right and
-        // +Y to the left and the frame reads right-handed on screen.
-        let eye = Vec3::new(-4.5, -4.5, 3.4);
+        // Orthographic 3/4 view from the (+X, -Y, +Z) octant, Z up: the
+        // +X axis comes toward the lower right, +Y recedes to the upper
+        // right and +Z points up, so the frame reads right-handed.
+        let eye = Vec3::new(4.5, -4.5, 3.4);
         let view = view_matrix(eye, Vec3::ZERO);
 
         let half = 4.4;
