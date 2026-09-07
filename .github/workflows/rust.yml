@@ -95,28 +95,25 @@ jobs:
   android:
     name: Android
     runs-on: ubuntu-latest
-    container: notfl3/cargo-apk
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - aarch64-linux-android
+          - armv7-linux-androideabi
+          - i686-linux-android
+          - x86_64-linux-android
     steps:
       - uses: actions/checkout@v4
-
-      # The container image ships a prebuilt toolchain older than cargo 1.85,
-      # which cannot parse the 2024 edition. Update it (keeping the Android
-      # std targets already installed in the image) before building.
-      - name: Update Rust toolchain
-        run: |
-          if command -v rustup >/dev/null 2>&1; then
-            rustup update stable
-            rustup default stable
-          else
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
-            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          fi
-          rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
-          cargo --version
-
-      - name: cargo quad-apk
-        run: |
-          cargo quad-apk build
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      # `cargo check` needs no NDK/SDK (nothing is linked). The old
+      # `cargo quad-apk build` job is gone: cargo-quad-apk links a cargo
+      # library too old to parse edition-2024 manifests, and there is no
+      # newer release.
+      - name: Check
+        run: cargo check --target ${{ matrix.target }}
 
   msrv:
     name: MSRV Check (1.85)
