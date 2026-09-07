@@ -51,6 +51,12 @@ glam = { version = "0.33", features = ["scalar-math"] }
 quad-rand = "0.2"
 fontdue = "0.9"
 
+# Android apps are shared libraries loaded by the Java activity through JNI:
+# there is no `main`, the entry point is the `quad_main` symbol.
+[[example]]
+name = "quad_android"
+crate-type = ["cdylib"]
+
 [profile.release]
 lto = true
 panic = 'abort'
