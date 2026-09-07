@@ -115,6 +115,29 @@ jobs:
       - name: Check
         run: cargo check --target ${{ matrix.target }}
 
+  android-apk:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      # Packages the quad_android example into a signed, installable APK
+      # using the SDK build-tools preinstalled on the runner.
+      - name: Build example APK
+        run: extras/android/build_apk.sh
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quad_android-apk
+          path: target/android/quad_android.apk
+
   msrv:
     name: MSRV Check (1.85)
     runs-on: ubuntu-latest
