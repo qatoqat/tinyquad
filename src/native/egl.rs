@@ -173,18 +173,19 @@ pub unsafe fn create_egl_context(
     alpha: bool,
     sample_count: i32,
 ) -> Result<(EGLContext, EGLConfig, EGLDisplay), EglError> {
-    let display = (egl.eglGetDisplay)(display as _);
-    if display.is_null() {
-        // == EGL_NO_DISPLAY
-        return Err(EglError::NoDisplay);
-    }
+    unsafe {
+        let display = (egl.eglGetDisplay)(display as _);
+        if display.is_null() {
+            // == EGL_NO_DISPLAY
+            return Err(EglError::NoDisplay);
+        }
 
-    if (egl.eglInitialize)(display, null_mut(), null_mut()) == 0 {
-        return Err(EglError::InitializeFailed);
-    }
+        if (egl.eglInitialize)(display, null_mut(), null_mut()) == 0 {
+            return Err(EglError::InitializeFailed);
+        }
 
-    let alpha_size = if alpha { 8 } else { 0 };
-    #[rustfmt::skip]
+        let alpha_size = if alpha { 8 } else { 0 };
+        #[rustfmt::skip]
     let cfg_attributes = [
         EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
         EGL_RED_SIZE, 8,
@@ -196,57 +197,58 @@ pub unsafe fn create_egl_context(
         EGL_SAMPLES, sample_count as u32,
         EGL_NONE,
     ];
-    let mut available_cfgs: Vec<EGLConfig> = vec![null_mut(); 32];
-    let mut cfg_count = 0;
+        let mut available_cfgs: Vec<EGLConfig> = vec![null_mut(); 32];
+        let mut cfg_count = 0;
 
-    (egl.eglChooseConfig)(
-        display,
-        cfg_attributes.as_ptr() as _,
-        available_cfgs.as_ptr() as _,
-        32,
-        &mut cfg_count as *mut _ as *mut _,
-    );
-    assert!(cfg_count > 0);
-    assert!(cfg_count <= 32);
+        (egl.eglChooseConfig)(
+            display,
+            cfg_attributes.as_ptr() as _,
+            available_cfgs.as_ptr() as _,
+            32,
+            &mut cfg_count as *mut _ as *mut _,
+        );
+        assert!(cfg_count > 0);
+        assert!(cfg_count <= 32);
 
-    // find config with 8-bit rgb buffer if available, ndk sample does not trust egl spec
-    let mut config: EGLConfig = null_mut();
-    let mut exact_cfg_found = false;
-    for c in &mut available_cfgs[0..cfg_count] {
-        let mut r: i32 = 0;
-        let mut g: i32 = 0;
-        let mut b: i32 = 0;
-        let mut a: i32 = 0;
-        let mut d: i32 = 0;
-        if (egl.eglGetConfigAttrib)(display, *c, EGL_RED_SIZE as _, &mut r) == 1
-            && (egl.eglGetConfigAttrib)(display, *c, EGL_GREEN_SIZE as _, &mut g) == 1
-            && (egl.eglGetConfigAttrib)(display, *c, EGL_BLUE_SIZE as _, &mut b) == 1
-            && (egl.eglGetConfigAttrib)(display, *c, EGL_ALPHA_SIZE as _, &mut a) == 1
-            && (egl.eglGetConfigAttrib)(display, *c, EGL_DEPTH_SIZE as _, &mut d) == 1
-            && r == 8
-            && g == 8
-            && b == 8
-            && (alpha_size == 0 || a == alpha_size as _)
-            && d == 16
-        {
-            exact_cfg_found = true;
-            config = *c;
-            break;
+        // find config with 8-bit rgb buffer if available, ndk sample does not trust egl spec
+        let mut config: EGLConfig = null_mut();
+        let mut exact_cfg_found = false;
+        for c in &mut available_cfgs[0..cfg_count] {
+            let mut r: i32 = 0;
+            let mut g: i32 = 0;
+            let mut b: i32 = 0;
+            let mut a: i32 = 0;
+            let mut d: i32 = 0;
+            if (egl.eglGetConfigAttrib)(display, *c, EGL_RED_SIZE as _, &mut r) == 1
+                && (egl.eglGetConfigAttrib)(display, *c, EGL_GREEN_SIZE as _, &mut g) == 1
+                && (egl.eglGetConfigAttrib)(display, *c, EGL_BLUE_SIZE as _, &mut b) == 1
+                && (egl.eglGetConfigAttrib)(display, *c, EGL_ALPHA_SIZE as _, &mut a) == 1
+                && (egl.eglGetConfigAttrib)(display, *c, EGL_DEPTH_SIZE as _, &mut d) == 1
+                && r == 8
+                && g == 8
+                && b == 8
+                && (alpha_size == 0 || a == alpha_size as _)
+                && d == 16
+            {
+                exact_cfg_found = true;
+                config = *c;
+                break;
+            }
         }
-    }
-    if !exact_cfg_found {
-        config = available_cfgs[0];
-    }
-    let ctx_attributes = [EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE];
-    let context = (egl.eglCreateContext)(
-        display,
-        config,
-        /* EGL_NO_CONTEXT */ null_mut(),
-        ctx_attributes.as_ptr() as _,
-    );
-    if context.is_null() {
-        return Err(EglError::CreateContextFailed);
-    }
+        if !exact_cfg_found {
+            config = available_cfgs[0];
+        }
+        let ctx_attributes = [EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE];
+        let context = (egl.eglCreateContext)(
+            display,
+            config,
+            /* EGL_NO_CONTEXT */ null_mut(),
+            ctx_attributes.as_ptr() as _,
+        );
+        if context.is_null() {
+            return Err(EglError::CreateContextFailed);
+        }
 
-    Ok((context, config, display))
+        Ok((context, config, display))
+    }
 }

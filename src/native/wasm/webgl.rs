@@ -314,7 +314,7 @@ pub struct __GLsync {
 pub type GLsync = *mut __GLsync;
 
 #[link(wasm_import_module = "env")]
-extern "C" {
+unsafe extern "C" {
     pub fn glActiveTexture(texture: GLenum);
     pub fn glAttachShader(program: GLuint, shader: GLuint);
     pub fn glBindAttribLocation(program: GLuint, index: GLuint, name: *const GLchar);

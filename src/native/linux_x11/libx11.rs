@@ -799,7 +799,7 @@ pub mod Xresource_h {
         pub size: libc::c_uint,
         pub addr: XPointer,
     }
-    use super::Xlib_h::{XPointer, _XrmHashBucketRec};
+    use super::Xlib_h::{_XrmHashBucketRec, XPointer};
 }
 
 #[derive(Copy, Clone)]
@@ -834,14 +834,14 @@ macro_rules! declare_atoms {
             $(pub $name: Atom,)*
         }
         impl X11Extensions {
-            pub unsafe fn load(libx11: &mut LibX11, display: *mut Display) -> Self {
+            pub unsafe fn load(libx11: &mut LibX11, display: *mut Display) -> Self { unsafe {
                 Self {
                     $($name: {
                         let atom = std::ffi::CString::new($atom).unwrap();
                         (libx11.XInternAtom)(display, atom.as_ptr(), false as _)
                     },)*
                 }
-            }
+            }}
         }
     }
 }
@@ -936,7 +936,9 @@ crate::declare_module!(
 
 impl LibX11 {
     pub unsafe fn load_extensions(&mut self, display: *mut Display) {
-        self.extensions = X11Extensions::load(self, display);
+        unsafe {
+            self.extensions = X11Extensions::load(self, display);
+        }
     }
 }
 

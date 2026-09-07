@@ -1,6 +1,6 @@
 use std::ffi::CString;
 
-use crate::{window, ResourceManager};
+use crate::{ResourceManager, window};
 
 mod cache;
 
@@ -249,7 +249,10 @@ impl Texture {
                     );
                 }
                 TextureSource::Bytes(source) => {
-                    assert!(params.kind == TextureKind::Texture2D, "incompatible TextureKind and TextureSource. Cubemaps require TextureSource::Array of 6 textures.");
+                    assert!(
+                        params.kind == TextureKind::Texture2D,
+                        "incompatible TextureKind and TextureSource. Cubemaps require TextureSource::Array of 6 textures."
+                    );
                     glTexImage2D(
                         GL_TEXTURE_2D,
                         0,
@@ -1490,7 +1493,7 @@ impl RenderingBackend for GlContext {
                 let vb = vertex_buffers[attribute.buffer_index];
                 let vb = self.buffers[vb.0];
 
-                if cached_attr.map_or(true, |cached_attr| {
+                if cached_attr.is_none_or(|cached_attr| {
                     attribute != cached_attr.attribute || cached_attr.gl_vbuf != vb.gl_buf
                 }) {
                     self.cache

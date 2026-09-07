@@ -628,16 +628,18 @@ impl LibWaylandClient {
         interface: *const wl_interface,
         version: c_uint,
     ) -> *mut c_void {
-        let id: *mut wl_proxy = (self.wl_proxy_marshal_constructor_versioned)(
-            wl_registry as _,
-            WL_REGISTRY_BIND,
-            interface as _,
-            version,
-            name,
-            (*interface).name,
-            version,
-        );
-        id as *mut _
+        unsafe {
+            let id: *mut wl_proxy = (self.wl_proxy_marshal_constructor_versioned)(
+                wl_registry as _,
+                WL_REGISTRY_BIND,
+                interface as _,
+                version,
+                name,
+                (*interface).name,
+                version,
+            );
+            id as *mut _
+        }
     }
     pub unsafe fn data_offer_receive(
         &mut self,
@@ -645,23 +647,25 @@ impl LibWaylandClient {
         data_offer: *mut wl_data_offer,
         mime_type: *const c_char,
     ) -> Option<Vec<u8>> {
-        let mut fds: [c_int; 2] = [0; 2];
-        assert_eq!(libc::pipe(fds.as_mut_ptr()), 0);
-        (self.wl_proxy_marshal)(data_offer as _, WL_DATA_OFFER_RECEIVE, mime_type, fds[1]);
-        libc::close(fds[1]);
-        (self.wl_display_roundtrip)(display);
-        let mut bytes = Vec::new();
-        loop {
-            let mut buf = [0_u8; 1024];
-            let n = libc::read(fds[0], buf.as_mut_ptr() as _, buf.len());
-            match n {
-                n if n > 0 => bytes.extend_from_slice(&buf[..n as usize]),
-                0 => break,
-                _ => return None,
+        unsafe {
+            let mut fds: [c_int; 2] = [0; 2];
+            assert_eq!(libc::pipe(fds.as_mut_ptr()), 0);
+            (self.wl_proxy_marshal)(data_offer as _, WL_DATA_OFFER_RECEIVE, mime_type, fds[1]);
+            libc::close(fds[1]);
+            (self.wl_display_roundtrip)(display);
+            let mut bytes = Vec::new();
+            loop {
+                let mut buf = [0_u8; 1024];
+                let n = libc::read(fds[0], buf.as_mut_ptr() as _, buf.len());
+                match n {
+                    n if n > 0 => bytes.extend_from_slice(&buf[..n as usize]),
+                    0 => break,
+                    _ => return None,
+                }
             }
+            libc::close(fds[0]);
+            Some(bytes)
         }
-        libc::close(fds[0]);
-        Some(bytes)
     }
 }
 

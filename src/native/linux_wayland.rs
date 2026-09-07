@@ -18,7 +18,7 @@ use libxkbcommon::*;
 
 use crate::{
     event::{EventHandler, KeyCode, KeyMods, MouseButton},
-    native::{egl, NativeDisplayData, Request},
+    native::{NativeDisplayData, Request, egl},
 };
 
 use core::time::Duration;
@@ -72,130 +72,138 @@ impl WaylandPayload {
     // needs to combine both the Wayland events and the key repeat events
     // the implementation is translated from glfw
     unsafe fn poll_new_event(&mut self, blocking: bool) {
-        let mut fds = [
-            libc::pollfd {
-                fd: (self.client.wl_display_get_fd)(self.display),
-                events: libc::POLLIN,
-                revents: 0,
-            },
-            libc::pollfd {
-                fd: self.keyboard_context.timerfd,
-                events: libc::POLLIN,
-                revents: 0,
-            },
-        ];
-        (self.client.wl_display_flush)(self.display);
-        while (self.client.wl_display_prepare_read)(self.display) != 0 {
-            (self.client.wl_display_dispatch_pending)(self.display);
-        }
-        if libc::poll(fds.as_mut_ptr(), 2, if blocking { i32::MAX } else { 0 }) > 0 {
-            // if the Wayland display has events available
-            if fds[0].revents & libc::POLLIN == 1 {
-                (self.client.wl_display_read_events)(self.display);
+        unsafe {
+            let mut fds = [
+                libc::pollfd {
+                    fd: (self.client.wl_display_get_fd)(self.display),
+                    events: libc::POLLIN,
+                    revents: 0,
+                },
+                libc::pollfd {
+                    fd: self.keyboard_context.timerfd,
+                    events: libc::POLLIN,
+                    revents: 0,
+                },
+            ];
+            (self.client.wl_display_flush)(self.display);
+            while (self.client.wl_display_prepare_read)(self.display) != 0 {
                 (self.client.wl_display_dispatch_pending)(self.display);
+            }
+            if libc::poll(fds.as_mut_ptr(), 2, if blocking { i32::MAX } else { 0 }) > 0 {
+                // if the Wayland display has events available
+                if fds[0].revents & libc::POLLIN == 1 {
+                    (self.client.wl_display_read_events)(self.display);
+                    (self.client.wl_display_dispatch_pending)(self.display);
+                } else {
+                    (self.client.wl_display_cancel_read)(self.display);
+                }
+                // if key repeat takes place
+                if fds[1].revents & libc::POLLIN == 1 {
+                    let mut count: [libc::size_t; 1] = [0];
+                    let n_bits = core::mem::size_of::<libc::size_t>();
+                    assert_eq!(
+                        libc::read(
+                            self.keyboard_context.timerfd,
+                            count.as_mut_ptr() as _,
+                            n_bits
+                        ),
+                        n_bits as _
+                    );
+                    for _ in 0..count[0] {
+                        self.keyboard_context.generate_key_repeat_events(
+                            &mut self.xkb,
+                            &self.keymap,
+                            self.xkb_state,
+                            &mut self.events,
+                        );
+                    }
+                }
             } else {
                 (self.client.wl_display_cancel_read)(self.display);
             }
-            // if key repeat takes place
-            if fds[1].revents & libc::POLLIN == 1 {
-                let mut count: [libc::size_t; 1] = [0];
-                let n_bits = core::mem::size_of::<libc::size_t>();
-                assert_eq!(
-                    libc::read(
-                        self.keyboard_context.timerfd,
-                        count.as_mut_ptr() as _,
-                        n_bits
-                    ),
-                    n_bits as _
-                );
-                for _ in 0..count[0] {
-                    self.keyboard_context.generate_key_repeat_events(
-                        &mut self.xkb,
-                        &self.keymap,
-                        self.xkb_state,
-                        &mut self.events,
+            let errno = (self.client.wl_display_get_error)(self.display);
+            // A non-zero errno means the compositor decided that we need to die.
+            // Nothing more we can do at this point :(
+            // If we want the detailed error message, we need to run with `WAYLAND_DEBUG=client`, since
+            // the message string is not accessible to us.
+            match errno {
+                0 => (),
+                libc::EPROTO => {
+                    let mut interface: *const wl_interface = std::ptr::null();
+                    let mut id = 0;
+                    let code = (self.client.wl_display_get_protocol_error)(
+                        self.display,
+                        &mut interface,
+                        &mut id,
                     );
+                    let name = core::ffi::CStr::from_ptr((*interface).name)
+                        .to_str()
+                        .unwrap();
+                    panic!(
+                        "Wayland protocol error at {}#{} with code {}",
+                        name, id, code
+                    )
                 }
-            }
-        } else {
-            (self.client.wl_display_cancel_read)(self.display);
-        }
-        let errno = (self.client.wl_display_get_error)(self.display);
-        // A non-zero errno means the compositor decided that we need to die.
-        // Nothing more we can do at this point :(
-        // If we want the detailed error message, we need to run with `WAYLAND_DEBUG=client`, since
-        // the message string is not accessible to us.
-        match errno {
-            0 => (),
-            libc::EPROTO => {
-                let mut interface: *const wl_interface = std::ptr::null();
-                let mut id = 0;
-                let code = (self.client.wl_display_get_protocol_error)(
-                    self.display,
-                    &mut interface,
-                    &mut id,
-                );
-                let name = core::ffi::CStr::from_ptr((*interface).name)
-                    .to_str()
-                    .unwrap();
-                panic!(
-                    "Wayland protocol error at {}#{} with code {}",
-                    name, id, code
-                )
-            }
-            _ => {
-                panic!("Wayland display error with code {}", errno)
+                _ => {
+                    panic!("Wayland display error with code {}", errno)
+                }
             }
         }
     }
     unsafe fn init_data_device(&mut self) {
-        self.data_device = wl_request_constructor!(
-            self.client,
-            self.data_device_manager,
-            WL_DATA_DEVICE_MANAGER_GET_DATA_DEVICE,
-            self.client.wl_data_device_interface,
-            self.seat
-        );
-        assert!(!self.data_device.is_null());
-        DATA_DEVICE_LISTENER.data_offer = data_device_handle_data_offer;
-        DATA_DEVICE_LISTENER.enter = drag_n_drop::data_device_handle_enter;
-        DATA_DEVICE_LISTENER.leave = drag_n_drop::data_device_handle_leave;
-        DATA_DEVICE_LISTENER.drop = drag_n_drop::data_device_handle_drop;
-        DATA_DEVICE_LISTENER.selection = clipboard::data_device_handle_selection;
-        (self.client.wl_proxy_add_listener)(
-            self.data_device as _,
-            &DATA_DEVICE_LISTENER as *const _ as _,
-            self as *mut _ as _,
-        );
+        unsafe {
+            self.data_device = wl_request_constructor!(
+                self.client,
+                self.data_device_manager,
+                WL_DATA_DEVICE_MANAGER_GET_DATA_DEVICE,
+                self.client.wl_data_device_interface,
+                self.seat
+            );
+            assert!(!self.data_device.is_null());
+            DATA_DEVICE_LISTENER.data_offer = data_device_handle_data_offer;
+            DATA_DEVICE_LISTENER.enter = drag_n_drop::data_device_handle_enter;
+            DATA_DEVICE_LISTENER.leave = drag_n_drop::data_device_handle_leave;
+            DATA_DEVICE_LISTENER.drop = drag_n_drop::data_device_handle_drop;
+            DATA_DEVICE_LISTENER.selection = clipboard::data_device_handle_selection;
+            (self.client.wl_proxy_add_listener)(
+                self.data_device as _,
+                &DATA_DEVICE_LISTENER as *const _ as _,
+                self as *mut _ as _,
+            );
+        }
     }
     unsafe fn init_pointer_context(&mut self) {
-        if !self.pointer_context.cursor_shape_manager.is_null() {
-            self.pointer_context.cursor_shape_device = wl_request_constructor!(
-                self.client,
-                self.pointer_context.cursor_shape_manager,
-                extensions::cursor::CURSOR_SHAPE_MANAGER_GET_POINTER,
-                &extensions::cursor::wp_cursor_shape_device_v1_interface,
-                self.pointer_context.pointer
-            );
-            assert!(!self.pointer_context.cursor_shape_device.is_null());
-        } else {
-            eprintln!("Wayland compositor does not support cursor shape");
+        unsafe {
+            if !self.pointer_context.cursor_shape_manager.is_null() {
+                self.pointer_context.cursor_shape_device = wl_request_constructor!(
+                    self.client,
+                    self.pointer_context.cursor_shape_manager,
+                    extensions::cursor::CURSOR_SHAPE_MANAGER_GET_POINTER,
+                    &extensions::cursor::wp_cursor_shape_device_v1_interface,
+                    self.pointer_context.pointer
+                );
+                assert!(!self.pointer_context.cursor_shape_device.is_null());
+            } else {
+                eprintln!("Wayland compositor does not support cursor shape");
+            }
         }
     }
     unsafe fn set_fullscreen(&mut self, full: bool) {
-        if full {
-            wl_request!(
-                self.client,
-                self.xdg_toplevel,
-                extensions::xdg_shell::xdg_toplevel::set_fullscreen,
-                std::ptr::null_mut::<wl_output>()
-            );
-        } else {
-            wl_request!(
-                self.client,
-                self.xdg_toplevel,
-                extensions::xdg_shell::xdg_toplevel::unset_fullscreen
-            );
+        unsafe {
+            if full {
+                wl_request!(
+                    self.client,
+                    self.xdg_toplevel,
+                    extensions::xdg_shell::xdg_toplevel::set_fullscreen,
+                    std::ptr::null_mut::<wl_output>()
+                );
+            } else {
+                wl_request!(
+                    self.client,
+                    self.xdg_toplevel,
+                    extensions::xdg_shell::xdg_toplevel::unset_fullscreen
+                );
+            }
         }
     }
 }
@@ -280,8 +288,10 @@ impl KeyboardContext {
         xkb_state: *mut xkb_state,
         events: &mut Vec<WaylandEvent>,
     ) {
-        if let Some(key) = self.repeated_key {
-            self.generate_key_events(libxkb, keymap, xkb_state, key, true, events)
+        unsafe {
+            if let Some(key) = self.repeated_key {
+                self.generate_key_events(libxkb, keymap, xkb_state, key, true, events)
+            }
         }
     }
     unsafe fn generate_key_events(
@@ -293,19 +303,21 @@ impl KeyboardContext {
         repeat: bool,
         events: &mut Vec<WaylandEvent>,
     ) {
-        let keymods = keymap.get_keymods(libxkb, xkb_state);
+        unsafe {
+            let keymods = keymap.get_keymods(libxkb, xkb_state);
 
-        // The keycodes in Miniquad are obtained without modifiers
-        let keysym = libxkb.keymap_key_get_sym_without_mod(keymap.xkb_keymap, key + 8);
-        let keycode = keycodes::translate_keysym(keysym);
-        events.push(WaylandEvent::KeyDown(keycode, keymods, repeat));
+            // The keycodes in Miniquad are obtained without modifiers
+            let keysym = libxkb.keymap_key_get_sym_without_mod(keymap.xkb_keymap, key + 8);
+            let keycode = keycodes::translate_keysym(keysym);
+            events.push(WaylandEvent::KeyDown(keycode, keymods, repeat));
 
-        // To obtain the underlying character, we do need to provide the modifiers
-        let keysym = (libxkb.xkb_state_key_get_one_sym)(xkb_state, key + 8);
-        let chr = (libxkb.xkb_keysym_to_utf32)(keysym);
-        if chr > 0 {
-            if let Some(chr) = char::from_u32(chr) {
-                events.push(WaylandEvent::Char(chr, keymods, repeat));
+            // To obtain the underlying character, we do need to provide the modifiers
+            let keysym = (libxkb.xkb_state_key_get_one_sym)(xkb_state, key + 8);
+            let chr = (libxkb.xkb_keysym_to_utf32)(keysym);
+            if chr > 0 {
+                if let Some(chr) = char::from_u32(chr) {
+                    events.push(WaylandEvent::Char(chr, keymods, repeat));
+                }
             }
         }
     }
@@ -350,27 +362,29 @@ impl PointerContext {
         icon: Option<crate::CursorIcon>,
         serial: core::ffi::c_uint,
     ) {
-        self.cursor_icon = icon;
-        if let Some(icon) = icon {
-            if !self.cursor_shape_device.is_null() {
+        unsafe {
+            self.cursor_icon = icon;
+            if let Some(icon) = icon {
+                if !self.cursor_shape_device.is_null() {
+                    wl_request!(
+                        client,
+                        self.cursor_shape_device,
+                        extensions::cursor::CURSOR_SHAPE_DEVICE_SET_SHAPE,
+                        serial,
+                        extensions::cursor::translate_cursor(icon)
+                    );
+                }
+            } else {
                 wl_request!(
                     client,
-                    self.cursor_shape_device,
-                    extensions::cursor::CURSOR_SHAPE_DEVICE_SET_SHAPE,
+                    self.pointer,
+                    WL_POINTER_SET_CURSOR,
                     serial,
-                    extensions::cursor::translate_cursor(icon)
+                    std::ptr::null_mut::<wl_surface>(),
+                    0,
+                    0
                 );
             }
-        } else {
-            wl_request!(
-                client,
-                self.pointer,
-                WL_POINTER_SET_CURSOR,
-                serial,
-                std::ptr::null_mut::<wl_surface>(),
-                0,
-                0
-            );
         }
     }
     fn handle_enter(&mut self, client: &mut LibWaylandClient, serial: core::ffi::c_uint) {
@@ -393,57 +407,59 @@ impl PointerContext {
         }
     }
     unsafe fn set_grab(&mut self, data: *mut std::ffi::c_void, grab: bool) {
-        let display: &mut WaylandPayload = &mut *(data as *mut _);
-        if grab {
-            if self.locked_pointer.is_null() {
-                if !self.pointer_constraints.is_null() {
-                    self.locked_pointer = wl_request_constructor!(
-                        display.client,
-                        self.pointer_constraints,
-                        extensions::cursor::POINTER_CONSTRAINTS_LOCK_POINTER,
-                        &extensions::cursor::zwp_locked_pointer_v1_interface,
-                        display.surface,
-                        self.pointer,
-                        std::ptr::null_mut::<wl_region>(),
-                        extensions::cursor::zwp_pointer_constraints_v1_lifetime_PERSISTENT
-                    );
-                    assert!(!self.locked_pointer.is_null());
-                } else {
-                    eprintln!("Wayland compositor does not support locked pointer");
+        unsafe {
+            let display: &mut WaylandPayload = &mut *(data as *mut _);
+            if grab {
+                if self.locked_pointer.is_null() {
+                    if !self.pointer_constraints.is_null() {
+                        self.locked_pointer = wl_request_constructor!(
+                            display.client,
+                            self.pointer_constraints,
+                            extensions::cursor::POINTER_CONSTRAINTS_LOCK_POINTER,
+                            &extensions::cursor::zwp_locked_pointer_v1_interface,
+                            display.surface,
+                            self.pointer,
+                            std::ptr::null_mut::<wl_region>(),
+                            extensions::cursor::zwp_pointer_constraints_v1_lifetime_PERSISTENT
+                        );
+                        assert!(!self.locked_pointer.is_null());
+                    } else {
+                        eprintln!("Wayland compositor does not support locked pointer");
+                    }
                 }
-            }
 
-            if self.relative_pointer.is_null() {
-                if !self.relative_pointer_manager.is_null() {
-                    self.relative_pointer = wl_request_constructor!(
-                        display.client,
-                        self.relative_pointer_manager,
-                        extensions::cursor::RELATIVE_POINTER_MANAGER_GET_RELATIVE_POINTER,
-                        &extensions::cursor::zwp_relative_pointer_v1_interface,
-                        self.pointer
-                    );
-                    assert!(!self.relative_pointer.is_null());
-                    (RELATIVE_POINTER_LISTENER.relative_motion) =
-                        relative_pointer_handle_relative_motion;
-                    (display.client.wl_proxy_add_listener)(
-                        self.relative_pointer as _,
-                        &RELATIVE_POINTER_LISTENER as *const _ as _,
-                        data,
-                    );
-                } else {
-                    eprintln!("Wayland compositor does not support relative pointer");
+                if self.relative_pointer.is_null() {
+                    if !self.relative_pointer_manager.is_null() {
+                        self.relative_pointer = wl_request_constructor!(
+                            display.client,
+                            self.relative_pointer_manager,
+                            extensions::cursor::RELATIVE_POINTER_MANAGER_GET_RELATIVE_POINTER,
+                            &extensions::cursor::zwp_relative_pointer_v1_interface,
+                            self.pointer
+                        );
+                        assert!(!self.relative_pointer.is_null());
+                        (RELATIVE_POINTER_LISTENER.relative_motion) =
+                            relative_pointer_handle_relative_motion;
+                        (display.client.wl_proxy_add_listener)(
+                            self.relative_pointer as _,
+                            &RELATIVE_POINTER_LISTENER as *const _ as _,
+                            data,
+                        );
+                    } else {
+                        eprintln!("Wayland compositor does not support relative pointer");
+                    }
                 }
-            }
-        } else {
-            if !self.locked_pointer.is_null() {
-                wl_request!(display.client, self.locked_pointer, 0);
-                (display.client.wl_proxy_destroy)(self.locked_pointer as _);
-                self.locked_pointer = std::ptr::null_mut();
-            }
-            if !self.relative_pointer.is_null() {
-                wl_request!(display.client, self.relative_pointer, 0);
-                (display.client.wl_proxy_destroy)(self.relative_pointer as _);
-                self.relative_pointer = std::ptr::null_mut();
+            } else {
+                if !self.locked_pointer.is_null() {
+                    wl_request!(display.client, self.locked_pointer, 0);
+                    (display.client.wl_proxy_destroy)(self.locked_pointer as _);
+                    self.locked_pointer = std::ptr::null_mut();
+                }
+                if !self.relative_pointer.is_null() {
+                    wl_request!(display.client, self.relative_pointer, 0);
+                    (display.client.wl_proxy_destroy)(self.relative_pointer as _);
+                    self.relative_pointer = std::ptr::null_mut();
+                }
             }
         }
     }
@@ -466,66 +482,68 @@ unsafe extern "C" fn seat_handle_capabilities(
     seat: *mut wl_seat,
     caps: wl_seat_capability,
 ) {
-    let display: &mut WaylandPayload = &mut *(data as *mut _);
+    unsafe {
+        let display: &mut WaylandPayload = &mut *(data as *mut _);
 
-    if caps & wl_seat_capability_WL_SEAT_CAPABILITY_POINTER != 0 {
-        display.pointer_context.pointer = wl_request_constructor!(
-            display.client,
-            seat,
-            WL_SEAT_GET_POINTER,
-            display.client.wl_pointer_interface
-        );
-        assert!(!display.pointer_context.pointer.is_null());
-        POINTER_LISTENER.enter = pointer_handle_enter;
-        POINTER_LISTENER.axis = pointer_handle_axis;
-        POINTER_LISTENER.motion = pointer_handle_motion;
-        POINTER_LISTENER.button = pointer_handle_button;
-        POINTER_LISTENER.leave = pointer_handle_leave;
-        (display.client.wl_proxy_add_listener)(
-            display.pointer_context.pointer as _,
-            &POINTER_LISTENER as *const _ as _,
-            data,
-        );
-    }
+        if caps & wl_seat_capability_WL_SEAT_CAPABILITY_POINTER != 0 {
+            display.pointer_context.pointer = wl_request_constructor!(
+                display.client,
+                seat,
+                WL_SEAT_GET_POINTER,
+                display.client.wl_pointer_interface
+            );
+            assert!(!display.pointer_context.pointer.is_null());
+            POINTER_LISTENER.enter = pointer_handle_enter;
+            POINTER_LISTENER.axis = pointer_handle_axis;
+            POINTER_LISTENER.motion = pointer_handle_motion;
+            POINTER_LISTENER.button = pointer_handle_button;
+            POINTER_LISTENER.leave = pointer_handle_leave;
+            (display.client.wl_proxy_add_listener)(
+                display.pointer_context.pointer as _,
+                &POINTER_LISTENER as *const _ as _,
+                data,
+            );
+        }
 
-    if caps & wl_seat_capability_WL_SEAT_CAPABILITY_KEYBOARD != 0 {
-        display.keyboard = wl_request_constructor!(
-            display.client,
-            seat,
-            WL_SEAT_GET_KEYBOARD,
-            display.client.wl_keyboard_interface
-        );
-        assert!(!display.keyboard.is_null());
-        KEYBOARD_LISTENER.enter = keyboard_handle_enter;
-        KEYBOARD_LISTENER.keymap = keyboard_handle_keymap;
-        KEYBOARD_LISTENER.repeat_info = keyboard_handle_repeat_info;
-        KEYBOARD_LISTENER.key = keyboard_handle_key;
-        KEYBOARD_LISTENER.modifiers = keyboard_handle_modifiers;
-        KEYBOARD_LISTENER.leave = keyboard_handle_leave;
-        (display.client.wl_proxy_add_listener)(
-            display.keyboard as _,
-            &KEYBOARD_LISTENER as *const _ as _,
-            data,
-        );
-    }
+        if caps & wl_seat_capability_WL_SEAT_CAPABILITY_KEYBOARD != 0 {
+            display.keyboard = wl_request_constructor!(
+                display.client,
+                seat,
+                WL_SEAT_GET_KEYBOARD,
+                display.client.wl_keyboard_interface
+            );
+            assert!(!display.keyboard.is_null());
+            KEYBOARD_LISTENER.enter = keyboard_handle_enter;
+            KEYBOARD_LISTENER.keymap = keyboard_handle_keymap;
+            KEYBOARD_LISTENER.repeat_info = keyboard_handle_repeat_info;
+            KEYBOARD_LISTENER.key = keyboard_handle_key;
+            KEYBOARD_LISTENER.modifiers = keyboard_handle_modifiers;
+            KEYBOARD_LISTENER.leave = keyboard_handle_leave;
+            (display.client.wl_proxy_add_listener)(
+                display.keyboard as _,
+                &KEYBOARD_LISTENER as *const _ as _,
+                data,
+            );
+        }
 
-    if caps & wl_seat_capability_WL_SEAT_CAPABILITY_TOUCH != 0 {
-        display.touch = wl_request_constructor!(
-            display.client,
-            seat,
-            WL_SEAT_GET_TOUCH,
-            display.client.wl_touch_interface
-        );
-        assert!(!display.touch.is_null());
-        TOUCH_LISTENER.down = touch_handle_down;
-        TOUCH_LISTENER.up = touch_handle_up;
-        TOUCH_LISTENER.motion = touch_handle_motion;
-        TOUCH_LISTENER.cancel = touch_handle_cancel;
-        (display.client.wl_proxy_add_listener)(
-            display.touch as _,
-            &TOUCH_LISTENER as *const _ as _,
-            data,
-        );
+        if caps & wl_seat_capability_WL_SEAT_CAPABILITY_TOUCH != 0 {
+            display.touch = wl_request_constructor!(
+                display.client,
+                seat,
+                WL_SEAT_GET_TOUCH,
+                display.client.wl_touch_interface
+            );
+            assert!(!display.touch.is_null());
+            TOUCH_LISTENER.down = touch_handle_down;
+            TOUCH_LISTENER.up = touch_handle_up;
+            TOUCH_LISTENER.motion = touch_handle_motion;
+            TOUCH_LISTENER.cancel = touch_handle_cancel;
+            (display.client.wl_proxy_add_listener)(
+                display.touch as _,
+                &TOUCH_LISTENER as *const _ as _,
+                data,
+            );
+        }
     }
 }
 
@@ -551,28 +569,30 @@ unsafe extern "C" fn keyboard_handle_keymap(
     fd: i32,
     size: u32,
 ) {
-    let display: &mut WaylandPayload = &mut *(data as *mut _);
-    let map_shm = libc::mmap(
-        std::ptr::null_mut::<std::ffi::c_void>(),
-        size as usize,
-        libc::PROT_READ,
-        libc::MAP_PRIVATE,
-        fd,
-        0,
-    );
-    assert!(map_shm != libc::MAP_FAILED);
-    (display.xkb.xkb_keymap_unref)(display.keymap.xkb_keymap);
-    display.keymap.xkb_keymap = (display.xkb.xkb_keymap_new_from_string)(
-        display.xkb_context,
-        map_shm as *mut libc::FILE,
-        1,
-        0,
-    );
-    libc::munmap(map_shm, size as usize);
-    libc::close(fd);
-    display.keymap.cache_mod_indices(&mut display.xkb);
-    (display.xkb.xkb_state_unref)(display.xkb_state);
-    display.xkb_state = (display.xkb.xkb_state_new)(display.keymap.xkb_keymap);
+    unsafe {
+        let display: &mut WaylandPayload = &mut *(data as *mut _);
+        let map_shm = libc::mmap(
+            std::ptr::null_mut::<std::ffi::c_void>(),
+            size as usize,
+            libc::PROT_READ,
+            libc::MAP_PRIVATE,
+            fd,
+            0,
+        );
+        assert!(map_shm != libc::MAP_FAILED);
+        (display.xkb.xkb_keymap_unref)(display.keymap.xkb_keymap);
+        display.keymap.xkb_keymap = (display.xkb.xkb_keymap_new_from_string)(
+            display.xkb_context,
+            map_shm as *mut libc::FILE,
+            1,
+            0,
+        );
+        libc::munmap(map_shm, size as usize);
+        libc::close(fd);
+        display.keymap.cache_mod_indices(&mut display.xkb);
+        (display.xkb.xkb_state_unref)(display.xkb_state);
+        display.xkb_state = (display.xkb.xkb_state_new)(display.keymap.xkb_keymap);
+    }
 }
 unsafe extern "C" fn keyboard_handle_enter(
     data: *mut ::core::ffi::c_void,
@@ -581,10 +601,12 @@ unsafe extern "C" fn keyboard_handle_enter(
     _surface: *mut wl_surface,
     _keys: *mut wl_array,
 ) {
-    let display: &mut WaylandPayload = &mut *(data as *mut _);
-    // Needed for setting the clipboard
-    display.keyboard_context.enter_serial = Some(serial);
-    display.events.push(WaylandEvent::WindowRestored);
+    unsafe {
+        let display: &mut WaylandPayload = &mut *(data as *mut _);
+        // Needed for setting the clipboard
+        display.keyboard_context.enter_serial = Some(serial);
+        display.events.push(WaylandEvent::WindowRestored);
+    }
 }
 unsafe extern "C" fn keyboard_handle_leave(
     data: *mut ::core::ffi::c_void,
@@ -592,12 +614,14 @@ unsafe extern "C" fn keyboard_handle_leave(
     _serial: u32,
     _surface: *mut wl_surface,
 ) {
-    // Clear modifiers
-    let display: &mut WaylandPayload = &mut *(data as *mut _);
-    (display.xkb.xkb_state_update_mask)(display.xkb_state, 0, 0, 0, 0, 0, 0);
-    display.keyboard_context.repeated_key = None;
-    display.keyboard_context.enter_serial = None;
-    display.events.push(WaylandEvent::WindowMinimized);
+    unsafe {
+        // Clear modifiers
+        let display: &mut WaylandPayload = &mut *(data as *mut _);
+        (display.xkb.xkb_state_update_mask)(display.xkb_state, 0, 0, 0, 0, 0, 0);
+        display.keyboard_context.repeated_key = None;
+        display.keyboard_context.enter_serial = None;
+        display.events.push(WaylandEvent::WindowMinimized);
+    }
 }
 unsafe extern "C" fn keyboard_handle_key(
     data: *mut ::core::ffi::c_void,
@@ -607,39 +631,41 @@ unsafe extern "C" fn keyboard_handle_key(
     key: u32,
     state: wl_keyboard_key_state,
 ) {
-    let display: &mut WaylandPayload = &mut *(data as *mut _);
-    let libxkb = &mut display.xkb;
-    let xkb_keymap = display.keymap.xkb_keymap;
-    let xkb_state = display.xkb_state;
-    // https://wayland-book.com/seat/keyboard.html
-    // To translate this to an XKB scancode, you must add 8 to the evdev scancode.
-    let keysym = libxkb.keymap_key_get_sym_without_mod(xkb_keymap, key + 8);
-    let keycode = keycodes::translate_keysym(keysym);
-    let keymods = display.keymap.get_keymods(libxkb, xkb_state);
-    match state {
-        0 => {
-            display.keyboard_context.track_key_up(key);
-            display.events.push(WaylandEvent::KeyUp(keycode, keymods));
-        }
-        1 | 2 => {
-            let repeat = state == 2;
-            let should_repeat = (libxkb.xkb_keymap_key_repeats)(xkb_keymap, key + 8) == 1;
-            if !repeat && should_repeat {
-                display.keyboard_context.track_key_down(key);
+    unsafe {
+        let display: &mut WaylandPayload = &mut *(data as *mut _);
+        let libxkb = &mut display.xkb;
+        let xkb_keymap = display.keymap.xkb_keymap;
+        let xkb_state = display.xkb_state;
+        // https://wayland-book.com/seat/keyboard.html
+        // To translate this to an XKB scancode, you must add 8 to the evdev scancode.
+        let keysym = libxkb.keymap_key_get_sym_without_mod(xkb_keymap, key + 8);
+        let keycode = keycodes::translate_keysym(keysym);
+        let keymods = display.keymap.get_keymods(libxkb, xkb_state);
+        match state {
+            0 => {
+                display.keyboard_context.track_key_up(key);
+                display.events.push(WaylandEvent::KeyUp(keycode, keymods));
             }
-            display.keyboard_context.generate_key_events(
-                libxkb,
-                &display.keymap,
-                xkb_state,
-                key,
-                repeat,
-                &mut display.events,
-            );
-        }
-        _ => {
-            eprintln!("Unknown wl_keyboard::key_state");
-        }
-    };
+            1 | 2 => {
+                let repeat = state == 2;
+                let should_repeat = (libxkb.xkb_keymap_key_repeats)(xkb_keymap, key + 8) == 1;
+                if !repeat && should_repeat {
+                    display.keyboard_context.track_key_down(key);
+                }
+                display.keyboard_context.generate_key_events(
+                    libxkb,
+                    &display.keymap,
+                    xkb_state,
+                    key,
+                    repeat,
+                    &mut display.events,
+                );
+            }
+            _ => {
+                eprintln!("Unknown wl_keyboard::key_state");
+            }
+        };
+    }
 }
 unsafe extern "C" fn keyboard_handle_modifiers(
     data: *mut ::core::ffi::c_void,
@@ -650,16 +676,18 @@ unsafe extern "C" fn keyboard_handle_modifiers(
     mods_locked: u32,
     group: u32,
 ) {
-    let display: &mut WaylandPayload = &mut *(data as *mut _);
-    (display.xkb.xkb_state_update_mask)(
-        display.xkb_state,
-        mods_depressed,
-        mods_latched,
-        mods_locked,
-        0,
-        0,
-        group,
-    );
+    unsafe {
+        let display: &mut WaylandPayload = &mut *(data as *mut _);
+        (display.xkb.xkb_state_update_mask)(
+            display.xkb_state,
+            mods_depressed,
+            mods_latched,
+            mods_locked,
+            0,
+            0,
+            group,
+        );
+    }
 }
 unsafe extern "C" fn keyboard_handle_repeat_info(
     data: *mut ::core::ffi::c_void,
@@ -667,15 +695,17 @@ unsafe extern "C" fn keyboard_handle_repeat_info(
     rate: i32,
     delay: i32,
 ) {
-    let display: &mut WaylandPayload = &mut *(data as *mut _);
-    display.keyboard_context.repeat_info = if rate == 0 {
-        RepeatInfo::NoRepeat
-    } else {
-        RepeatInfo::Repeat {
-            delay: Duration::from_millis(delay as u64),
-            gap: Duration::from_micros(1_000_000 / rate as u64),
-        }
-    };
+    unsafe {
+        let display: &mut WaylandPayload = &mut *(data as *mut _);
+        display.keyboard_context.repeat_info = if rate == 0 {
+            RepeatInfo::NoRepeat
+        } else {
+            RepeatInfo::Repeat {
+                delay: Duration::from_millis(delay as u64),
+                gap: Duration::from_micros(1_000_000 / rate as u64),
+            }
+        };
+    }
 }
 
 unsafe extern "C" fn pointer_handle_enter(
@@ -686,12 +716,14 @@ unsafe extern "C" fn pointer_handle_enter(
     _surface_x: i32,
     _surface_y: i32,
 ) {
-    let display: &mut WaylandPayload = &mut *(data as *mut _);
-    display.focused_window = surface;
-    if surface == display.surface {
-        display
-            .pointer_context
-            .handle_enter(&mut display.client, serial);
+    unsafe {
+        let display: &mut WaylandPayload = &mut *(data as *mut _);
+        display.focused_window = surface;
+        if surface == display.surface {
+            display
+                .pointer_context
+                .handle_enter(&mut display.client, serial);
+        }
     }
 }
 
@@ -701,8 +733,10 @@ unsafe extern "C" fn pointer_handle_leave(
     _serial: u32,
     _surface: *mut wl_surface,
 ) {
-    let display: &mut WaylandPayload = &mut *(data as *mut _);
-    display.pointer_context.enter_serial = None;
+    unsafe {
+        let display: &mut WaylandPayload = &mut *(data as *mut _);
+        display.pointer_context.enter_serial = None;
+    }
 }
 
 unsafe extern "C" fn pointer_handle_motion(
@@ -712,14 +746,16 @@ unsafe extern "C" fn pointer_handle_motion(
     surface_x: i32,
     surface_y: i32,
 ) {
-    let display: &mut WaylandPayload = &mut *(data as *mut _);
-    if display.focused_window == display.surface {
-        // From wl_fixed_to_double(), it simply divides by 256
-        let d = crate::native_display().lock().unwrap();
-        let x = wl_fixed_to_double(surface_x) * d.dpi_scale;
-        let y = wl_fixed_to_double(surface_y) * d.dpi_scale;
-        display.pointer_context.position = (x, y);
-        display.events.push(WaylandEvent::PointerMotion(x, y));
+    unsafe {
+        let display: &mut WaylandPayload = &mut *(data as *mut _);
+        if display.focused_window == display.surface {
+            // From wl_fixed_to_double(), it simply divides by 256
+            let d = crate::native_display().lock().unwrap();
+            let x = wl_fixed_to_double(surface_x) * d.dpi_scale;
+            let y = wl_fixed_to_double(surface_y) * d.dpi_scale;
+            display.pointer_context.position = (x, y);
+            display.events.push(WaylandEvent::PointerMotion(x, y));
+        }
     }
 }
 unsafe extern "C" fn pointer_handle_button(
@@ -730,18 +766,20 @@ unsafe extern "C" fn pointer_handle_button(
     button: u32,
     state: u32,
 ) {
-    let display: &mut WaylandPayload = &mut *(data as *mut _);
-    if display.focused_window == display.surface {
-        // The code is defined in the kernel's linux/input-event-codes.h header file, e.g. BTN_LEFT
-        let button = match button {
-            272 => MouseButton::Left,
-            273 => MouseButton::Right,
-            274 => MouseButton::Middle,
-            _ => MouseButton::Unknown,
-        };
-        display
-            .events
-            .push(WaylandEvent::PointerButton(button, state == 1));
+    unsafe {
+        let display: &mut WaylandPayload = &mut *(data as *mut _);
+        if display.focused_window == display.surface {
+            // The code is defined in the kernel's linux/input-event-codes.h header file, e.g. BTN_LEFT
+            let button = match button {
+                272 => MouseButton::Left,
+                273 => MouseButton::Right,
+                274 => MouseButton::Middle,
+                _ => MouseButton::Unknown,
+            };
+            display
+                .events
+                .push(WaylandEvent::PointerButton(button, state == 1));
+        }
     }
 }
 unsafe extern "C" fn pointer_handle_axis(
@@ -751,17 +789,19 @@ unsafe extern "C" fn pointer_handle_axis(
     axis: u32,
     value: i32,
 ) {
-    let display: &mut WaylandPayload = &mut *(data as *mut _);
-    let mut value = wl_fixed_to_double(value);
-    // https://wayland-book.com/seat/pointer.html
-    if axis == 0 {
-        // Vertical scroll
-        // Wayland defines the direction differently to miniquad so lets flip it
-        value = -value;
-        display.events.push(WaylandEvent::PointerAxis(0.0, value));
-    } else if axis == 1 {
-        // Horizontal scroll
-        display.events.push(WaylandEvent::PointerAxis(value, 0.0));
+    unsafe {
+        let display: &mut WaylandPayload = &mut *(data as *mut _);
+        let mut value = wl_fixed_to_double(value);
+        // https://wayland-book.com/seat/pointer.html
+        if axis == 0 {
+            // Vertical scroll
+            // Wayland defines the direction differently to miniquad so lets flip it
+            value = -value;
+            display.events.push(WaylandEvent::PointerAxis(0.0, value));
+        } else if axis == 1 {
+            // Horizontal scroll
+            display.events.push(WaylandEvent::PointerAxis(value, 0.0));
+        }
     }
 }
 
@@ -775,12 +815,14 @@ unsafe extern "C" fn relative_pointer_handle_relative_motion(
     _dx_unaccel: wl_fixed_t,
     _dy_unaccel: wl_fixed_t,
 ) {
-    let display: &mut WaylandPayload = &mut *(data as *mut _);
-    if display.focused_window == display.surface {
-        // From wl_fixed_to_double(), it simply divides by 256
-        let dx = wl_fixed_to_double(dx);
-        let dy = wl_fixed_to_double(dy);
-        display.events.push(WaylandEvent::RawMotion(dx, dy));
+    unsafe {
+        let display: &mut WaylandPayload = &mut *(data as *mut _);
+        if display.focused_window == display.surface {
+            // From wl_fixed_to_double(), it simply divides by 256
+            let dx = wl_fixed_to_double(dx);
+            let dy = wl_fixed_to_double(dy);
+            display.events.push(WaylandEvent::RawMotion(dx, dy));
+        }
     }
 }
 
@@ -808,19 +850,21 @@ unsafe extern "C" fn touch_handle_down(
     x: wl_fixed_t,
     y: wl_fixed_t,
 ) {
-    let display: &mut WaylandPayload = &mut *(data as *mut _);
-    display.focused_window = surface;
-    if display.focused_window == display.surface {
-        let d = crate::native_display().lock().unwrap();
-        let x = wl_fixed_to_double(x) * d.dpi_scale;
-        let y = wl_fixed_to_double(y) * d.dpi_scale;
-        display.touch_positions.insert(id, (x, y));
-        display.events.push(WaylandEvent::Touch(
-            crate::TouchPhase::Started,
-            id as _,
-            x,
-            y,
-        ));
+    unsafe {
+        let display: &mut WaylandPayload = &mut *(data as *mut _);
+        display.focused_window = surface;
+        if display.focused_window == display.surface {
+            let d = crate::native_display().lock().unwrap();
+            let x = wl_fixed_to_double(x) * d.dpi_scale;
+            let y = wl_fixed_to_double(y) * d.dpi_scale;
+            display.touch_positions.insert(id, (x, y));
+            display.events.push(WaylandEvent::Touch(
+                crate::TouchPhase::Started,
+                id as _,
+                x,
+                y,
+            ));
+        }
     }
 }
 
@@ -832,15 +876,17 @@ unsafe extern "C" fn touch_handle_motion(
     x: wl_fixed_t,
     y: wl_fixed_t,
 ) {
-    let display: &mut WaylandPayload = &mut *(data as *mut _);
-    if display.focused_window == display.surface {
-        let d = crate::native_display().lock().unwrap();
-        let x = wl_fixed_to_double(x) * d.dpi_scale;
-        let y = wl_fixed_to_double(y) * d.dpi_scale;
-        display.touch_positions.insert(id, (x, y));
-        display
-            .events
-            .push(WaylandEvent::Touch(crate::TouchPhase::Moved, id as _, x, y));
+    unsafe {
+        let display: &mut WaylandPayload = &mut *(data as *mut _);
+        if display.focused_window == display.surface {
+            let d = crate::native_display().lock().unwrap();
+            let x = wl_fixed_to_double(x) * d.dpi_scale;
+            let y = wl_fixed_to_double(y) * d.dpi_scale;
+            display.touch_positions.insert(id, (x, y));
+            display
+                .events
+                .push(WaylandEvent::Touch(crate::TouchPhase::Moved, id as _, x, y));
+        }
     }
 }
 
@@ -851,25 +897,29 @@ unsafe extern "C" fn touch_handle_up(
     _time: core::ffi::c_uint,
     id: core::ffi::c_int,
 ) {
-    let display: &mut WaylandPayload = &mut *(data as *mut _);
-    if display.focused_window == display.surface {
-        if let Some((x, y)) = display.touch_positions.remove(&id) {
-            display
-                .events
-                .push(WaylandEvent::Touch(crate::TouchPhase::Ended, id as _, x, y));
+    unsafe {
+        let display: &mut WaylandPayload = &mut *(data as *mut _);
+        if display.focused_window == display.surface {
+            if let Some((x, y)) = display.touch_positions.remove(&id) {
+                display
+                    .events
+                    .push(WaylandEvent::Touch(crate::TouchPhase::Ended, id as _, x, y));
+            }
         }
     }
 }
 
 unsafe extern "C" fn touch_handle_cancel(data: *mut std::ffi::c_void, _touch: *mut wl_touch) {
-    let display: &mut WaylandPayload = &mut *(data as *mut _);
-    for (id, (x, y)) in display.touch_positions.drain() {
-        display.events.push(WaylandEvent::Touch(
-            crate::TouchPhase::Cancelled,
-            id as _,
-            x,
-            y,
-        ));
+    unsafe {
+        let display: &mut WaylandPayload = &mut *(data as *mut _);
+        for (id, (x, y)) in display.touch_positions.drain() {
+            display.events.push(WaylandEvent::Touch(
+                crate::TouchPhase::Cancelled,
+                id as _,
+                x,
+                y,
+            ));
+        }
     }
 }
 
@@ -880,139 +930,142 @@ unsafe extern "C" fn registry_add_object(
     interface: *const ::core::ffi::c_char,
     version: u32,
 ) {
-    let display: &mut WaylandPayload = &mut *(data as *mut _);
+    unsafe {
+        let display: &mut WaylandPayload = &mut *(data as *mut _);
 
-    let interface = std::ffi::CStr::from_ptr(interface).to_str().unwrap();
-    match interface {
-        "wl_output" => {
-            let wl_output: *mut wl_output = display.client.wl_registry_bind(
-                registry,
-                name,
-                display.client.wl_output_interface,
-                3.min(version),
-            ) as _;
-            assert!(!wl_output.is_null());
-            OUTPUT_LISTENER.scale = output_handle_scale;
-            (display.client.wl_proxy_add_listener)(
-                wl_output as _,
-                &OUTPUT_LISTENER as *const _ as _,
-                display as *mut _ as _,
-            );
-        }
-        "wl_compositor" => {
-            display.compositor = display.client.wl_registry_bind(
-                registry,
-                name,
-                display.client.wl_compositor_interface,
-                3.min(version),
-            ) as _;
-            assert!(!display.compositor.is_null());
-            display.surface = wl_request_constructor!(
-                display.client,
-                display.compositor,
-                WL_COMPOSITOR_CREATE_SURFACE,
-                display.client.wl_surface_interface
-            );
-            assert!(!display.surface.is_null());
-        }
-        "wl_subcompositor" => {
-            display.subcompositor = display.client.wl_registry_bind(
-                registry,
-                name,
-                display.client.wl_subcompositor_interface,
-                1,
-            ) as _;
-            assert!(!display.subcompositor.is_null());
-        }
-        "xdg_wm_base" => {
-            display.xdg_wm_base = display.client.wl_registry_bind(
-                registry,
-                name,
-                &extensions::xdg_shell::xdg_wm_base_interface,
-                1,
-            ) as _;
-            assert!(!display.xdg_wm_base.is_null());
-            XDG_WM_BASE_LISTENER.ping = xdg_wm_base_handle_ping;
-            (display.client.wl_proxy_add_listener)(
-                display.xdg_wm_base as _,
-                &XDG_WM_BASE_LISTENER as *const _ as _,
-                display as *mut _ as _,
-            );
-        }
-        "zxdg_decoration_manager" | "zxdg_decoration_manager_v1" => {
-            display.decoration_manager = display.client.wl_registry_bind(
-                registry,
-                name,
-                &extensions::xdg_decoration::zxdg_decoration_manager_v1_interface,
-                1,
-            ) as _;
-        }
-        "wp_viewporter" => {
-            display.viewporter = display.client.wl_registry_bind(
-                registry,
-                name,
-                &extensions::viewporter::wp_viewporter_interface,
-                1,
-            ) as _;
-        }
-        "wp_cursor_shape_manager_v1" => {
-            display.pointer_context.cursor_shape_manager = display.client.wl_registry_bind(
-                registry,
-                name,
-                &extensions::cursor::wp_cursor_shape_manager_v1_interface as _,
-                1,
-            ) as _;
-        }
-        "zwp_pointer_constraints_v1" => {
-            display.pointer_context.pointer_constraints = display.client.wl_registry_bind(
-                registry,
-                name,
-                &extensions::cursor::zwp_pointer_constraints_v1_interface as _,
-                1,
-            ) as _;
-        }
-        "zwp_relative_pointer_manager_v1" => {
-            display.pointer_context.relative_pointer_manager = display.client.wl_registry_bind(
-                registry,
-                name,
-                &extensions::cursor::zwp_relative_pointer_manager_v1_interface as _,
-                1,
-            ) as _;
-        }
-        "wl_shm" => {
-            display.shm =
-                display
-                    .client
-                    .wl_registry_bind(registry, name, display.client.wl_shm_interface, 1)
-                    as _;
-        }
-        "wl_seat" => {
-            let seat_version = 4.min(version);
-            display.seat = display.client.wl_registry_bind(
-                registry,
-                name,
-                display.client.wl_seat_interface,
-                seat_version,
-            ) as _;
-            assert!(!display.seat.is_null());
-            SEAT_LISTENER.capabilities = seat_handle_capabilities;
-            (display.client.wl_proxy_add_listener)(
-                display.seat as _,
-                &SEAT_LISTENER as *const _ as _,
-                data,
-            );
-        }
-        "wl_data_device_manager" => {
-            display.data_device_manager = display.client.wl_registry_bind(
-                registry,
-                name,
-                display.client.wl_data_device_manager_interface,
-                3,
-            ) as _;
-            assert!(!display.data_device_manager.is_null());
-        }
+        let interface = std::ffi::CStr::from_ptr(interface).to_str().unwrap();
+        match interface {
+            "wl_output" => {
+                let wl_output: *mut wl_output = display.client.wl_registry_bind(
+                    registry,
+                    name,
+                    display.client.wl_output_interface,
+                    3.min(version),
+                ) as _;
+                assert!(!wl_output.is_null());
+                OUTPUT_LISTENER.scale = output_handle_scale;
+                (display.client.wl_proxy_add_listener)(
+                    wl_output as _,
+                    &OUTPUT_LISTENER as *const _ as _,
+                    display as *mut _ as _,
+                );
+            }
+            "wl_compositor" => {
+                display.compositor = display.client.wl_registry_bind(
+                    registry,
+                    name,
+                    display.client.wl_compositor_interface,
+                    3.min(version),
+                ) as _;
+                assert!(!display.compositor.is_null());
+                display.surface = wl_request_constructor!(
+                    display.client,
+                    display.compositor,
+                    WL_COMPOSITOR_CREATE_SURFACE,
+                    display.client.wl_surface_interface
+                );
+                assert!(!display.surface.is_null());
+            }
+            "wl_subcompositor" => {
+                display.subcompositor = display.client.wl_registry_bind(
+                    registry,
+                    name,
+                    display.client.wl_subcompositor_interface,
+                    1,
+                ) as _;
+                assert!(!display.subcompositor.is_null());
+            }
+            "xdg_wm_base" => {
+                display.xdg_wm_base = display.client.wl_registry_bind(
+                    registry,
+                    name,
+                    &extensions::xdg_shell::xdg_wm_base_interface,
+                    1,
+                ) as _;
+                assert!(!display.xdg_wm_base.is_null());
+                XDG_WM_BASE_LISTENER.ping = xdg_wm_base_handle_ping;
+                (display.client.wl_proxy_add_listener)(
+                    display.xdg_wm_base as _,
+                    &XDG_WM_BASE_LISTENER as *const _ as _,
+                    display as *mut _ as _,
+                );
+            }
+            "zxdg_decoration_manager" | "zxdg_decoration_manager_v1" => {
+                display.decoration_manager = display.client.wl_registry_bind(
+                    registry,
+                    name,
+                    &extensions::xdg_decoration::zxdg_decoration_manager_v1_interface,
+                    1,
+                ) as _;
+            }
+            "wp_viewporter" => {
+                display.viewporter = display.client.wl_registry_bind(
+                    registry,
+                    name,
+                    &extensions::viewporter::wp_viewporter_interface,
+                    1,
+                ) as _;
+            }
+            "wp_cursor_shape_manager_v1" => {
+                display.pointer_context.cursor_shape_manager = display.client.wl_registry_bind(
+                    registry,
+                    name,
+                    &extensions::cursor::wp_cursor_shape_manager_v1_interface as _,
+                    1,
+                ) as _;
+            }
+            "zwp_pointer_constraints_v1" => {
+                display.pointer_context.pointer_constraints = display.client.wl_registry_bind(
+                    registry,
+                    name,
+                    &extensions::cursor::zwp_pointer_constraints_v1_interface as _,
+                    1,
+                ) as _;
+            }
+            "zwp_relative_pointer_manager_v1" => {
+                display.pointer_context.relative_pointer_manager = display.client.wl_registry_bind(
+                    registry,
+                    name,
+                    &extensions::cursor::zwp_relative_pointer_manager_v1_interface as _,
+                    1,
+                ) as _;
+            }
+            "wl_shm" => {
+                display.shm = display.client.wl_registry_bind(
+                    registry,
+                    name,
+                    display.client.wl_shm_interface,
+                    1,
+                ) as _;
+            }
+            "wl_seat" => {
+                let seat_version = 4.min(version);
+                display.seat = display.client.wl_registry_bind(
+                    registry,
+                    name,
+                    display.client.wl_seat_interface,
+                    seat_version,
+                ) as _;
+                assert!(!display.seat.is_null());
+                SEAT_LISTENER.capabilities = seat_handle_capabilities;
+                (display.client.wl_proxy_add_listener)(
+                    display.seat as _,
+                    &SEAT_LISTENER as *const _ as _,
+                    data,
+                );
+            }
+            "wl_data_device_manager" => {
+                display.data_device_manager = display.client.wl_registry_bind(
+                    registry,
+                    name,
+                    display.client.wl_data_device_manager_interface,
+                    3,
+                ) as _;
+                assert!(!display.data_device_manager.is_null());
+            }
 
-        _ => {}
+            _ => {}
+        }
     }
 }
 
@@ -1021,15 +1074,17 @@ unsafe extern "C" fn xdg_wm_base_handle_ping(
     toplevel: *mut extensions::xdg_shell::xdg_wm_base,
     serial: u32,
 ) {
-    assert!(!data.is_null());
-    let payload: &mut WaylandPayload = &mut *(data as *mut _);
+    unsafe {
+        assert!(!data.is_null());
+        let payload: &mut WaylandPayload = &mut *(data as *mut _);
 
-    wl_request!(
-        payload.client,
-        toplevel,
-        extensions::xdg_shell::xdg_wm_base::pong,
-        serial
-    );
+        wl_request!(
+            payload.client,
+            toplevel,
+            extensions::xdg_shell::xdg_wm_base::pong,
+            serial
+        );
+    }
 }
 
 unsafe extern "C" fn data_device_handle_data_offer(
@@ -1037,14 +1092,16 @@ unsafe extern "C" fn data_device_handle_data_offer(
     data_device: *mut wl_data_device,
     data_offer: *mut wl_data_offer,
 ) {
-    DATA_OFFER_LISTENER.source_actions = drag_n_drop::data_offer_handle_source_actions;
-    let display: &mut WaylandPayload = &mut *(data as *mut _);
-    assert_eq!(data_device, display.data_device);
-    (display.client.wl_proxy_add_listener)(
-        data_offer as _,
-        &DATA_OFFER_LISTENER as *const _ as _,
-        data,
-    );
+    unsafe {
+        DATA_OFFER_LISTENER.source_actions = drag_n_drop::data_offer_handle_source_actions;
+        let display: &mut WaylandPayload = &mut *(data as *mut _);
+        assert_eq!(data_device, display.data_device);
+        (display.client.wl_proxy_add_listener)(
+            data_offer as _,
+            &DATA_OFFER_LISTENER as *const _ as _,
+            data,
+        );
+    }
 }
 
 pub fn run<F>(conf: &crate::conf::Conf, f: &mut Option<F>) -> Option<()>

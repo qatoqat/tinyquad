@@ -1,4 +1,10 @@
-#![allow(unused_variables, dead_code, non_upper_case_globals, static_mut_refs)]
+#![allow(
+    unused_variables,
+    dead_code,
+    non_upper_case_globals,
+    static_mut_refs,
+    clippy::macro_metavars_in_unsafe
+)]
 
 pub mod cursor;
 pub mod libdecor;

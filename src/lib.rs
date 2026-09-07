@@ -389,6 +389,8 @@ pub mod window {
     /// This should be called when the text cursor moves to keep the IME
     /// candidate window near the insertion point.
     pub fn set_ime_position(x: i32, y: i32) {
+        // `d` is unused on Android, where the IME request is not sent.
+        #[cfg_attr(target_os = "android", allow(unused_variables))]
         let d = native_display().lock().unwrap();
         #[cfg(target_os = "android")]
         {
@@ -411,6 +413,8 @@ pub mod window {
     /// # Arguments
     /// * `enabled` - `true` to enable IME (for text input), `false` to disable (for game controls)
     pub fn set_ime_enabled(enabled: bool) {
+        // `d` is unused on Android, where the IME request is not sent.
+        #[cfg_attr(target_os = "android", allow(unused_variables))]
         let d = native_display().lock().unwrap();
         #[cfg(target_os = "android")]
         {

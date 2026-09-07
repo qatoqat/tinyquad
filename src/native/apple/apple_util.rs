@@ -3,11 +3,14 @@
 // and slightly modified
 
 #![allow(dead_code)]
+// Helpers around ObjC message sends (`msg_send!`) take `ObjcId` raw pointers;
+// callers are the platform event loops that already run inside `unsafe` blocks.
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
 
 use crate::{
+    CursorIcon,
     event::{KeyCode, KeyMods},
     native::apple::frameworks::*,
-    CursorIcon,
 };
 
 pub fn nsstring_to_string(string: ObjcId) -> String {
@@ -54,42 +57,46 @@ pub fn load_undocumented_cursor(cursor_name: &str) -> ObjcId {
 }
 
 pub unsafe fn ccfstr_from_str(inp: &str) -> CFStringRef {
-    let null = format!("{}\0", inp);
-    __CFStringMakeConstantString(null.as_ptr() as *const ::core::ffi::c_char)
+    unsafe {
+        let null = format!("{}\0", inp);
+        __CFStringMakeConstantString(null.as_ptr() as *const ::core::ffi::c_char)
+    }
 }
 
 pub unsafe fn cfstring_ref_to_string(cfstring: CFStringRef) -> String {
-    let length = CFStringGetLength(cfstring);
-    let range = CFRange {
-        location: 0,
-        length,
-    };
-    let mut num_bytes = 0u64;
-    let converted = CFStringGetBytes(
-        cfstring,
-        range,
-        kCFStringEncodingUTF8,
-        0,
-        false,
-        std::ptr::null_mut::<u8>(),
-        0,
-        &mut num_bytes,
-    );
-    if converted == 0 || num_bytes == 0 {
-        return String::new();
+    unsafe {
+        let length = CFStringGetLength(cfstring);
+        let range = CFRange {
+            location: 0,
+            length,
+        };
+        let mut num_bytes = 0u64;
+        let converted = CFStringGetBytes(
+            cfstring,
+            range,
+            kCFStringEncodingUTF8,
+            0,
+            false,
+            std::ptr::null_mut::<u8>(),
+            0,
+            &mut num_bytes,
+        );
+        if converted == 0 || num_bytes == 0 {
+            return String::new();
+        }
+        let mut buffer = vec![0u8; num_bytes as usize];
+        CFStringGetBytes(
+            cfstring,
+            range,
+            kCFStringEncodingUTF8,
+            0,
+            false,
+            buffer.as_mut_ptr(),
+            num_bytes,
+            std::ptr::null_mut::<u64>(),
+        );
+        String::from_utf8(buffer).unwrap_or_default()
     }
-    let mut buffer = vec![0u8; num_bytes as usize];
-    CFStringGetBytes(
-        cfstring,
-        range,
-        kCFStringEncodingUTF8,
-        0,
-        false,
-        buffer.as_mut_ptr(),
-        num_bytes,
-        std::ptr::null_mut::<u64>(),
-    );
-    String::from_utf8(buffer).unwrap_or_default()
 }
 
 pub fn load_webkit_cursor(cursor_name_str: &str) -> ObjcId {
@@ -406,8 +413,10 @@ pub fn keycode_to_menu_key(keycode: KeyCode, shift: bool) -> &'static str {
 }
 
 pub unsafe fn superclass(this: &Object) -> &Class {
-    let superclass: ObjcId = msg_send![this, superclass];
-    &*(superclass as *const _)
+    unsafe {
+        let superclass: ObjcId = msg_send![this, superclass];
+        &*(superclass as *const _)
+    }
 }
 
 #[cfg(target_os = "macos")]
