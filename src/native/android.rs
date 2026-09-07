@@ -1,8 +1,8 @@
 use crate::{
     event::{EventHandler, KeyCode, KeyMods, TouchPhase},
     native::{
-        egl::{self, LibEgl},
         NativeDisplayData,
+        egl::{self, LibEgl},
     },
 };
 
@@ -16,17 +16,19 @@ pub use ndk_sys;
 
 pub mod ndk_utils;
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn JNI_OnLoad(
     vm: *mut ndk_sys::JavaVM,
     _: std::ffi::c_void,
 ) -> ndk_sys::jint {
-    VM = vm as *mut _ as _;
+    unsafe {
+        VM = vm as *mut _ as _;
 
-    ndk_sys::JNI_VERSION_1_6 as _
+        ndk_sys::JNI_VERSION_1_6 as _
+    }
 }
 
-extern "C" {
+unsafe extern "C" {
     fn quad_main();
 }
 
@@ -73,7 +75,7 @@ enum Message {
 unsafe impl Send for Message {}
 
 thread_local! {
-    static MESSAGES_TX: RefCell<Option<mpsc::Sender<Message>>> = RefCell::new(None);
+    static MESSAGES_TX: RefCell<Option<mpsc::Sender<Message>>> = const { RefCell::new(None) };
 }
 
 fn send_message(message: Message) {
@@ -87,35 +89,43 @@ pub static mut ACTIVITY: ndk_sys::jobject = std::ptr::null_mut();
 static mut VM: *mut ndk_sys::JavaVM = std::ptr::null_mut();
 
 pub unsafe fn console_debug(msg: *const ::core::ffi::c_char) {
-    ndk_sys::__android_log_write(
-        ndk_sys::android_LogPriority_ANDROID_LOG_DEBUG as _,
-        b"SAPP\0".as_ptr() as _,
-        msg,
-    );
+    unsafe {
+        ndk_sys::__android_log_write(
+            ndk_sys::android_LogPriority_ANDROID_LOG_DEBUG as _,
+            c"SAPP".as_ptr() as _,
+            msg,
+        );
+    }
 }
 
 pub unsafe fn console_info(msg: *const ::core::ffi::c_char) {
-    ndk_sys::__android_log_write(
-        ndk_sys::android_LogPriority_ANDROID_LOG_INFO as _,
-        b"SAPP\0".as_ptr() as _,
-        msg,
-    );
+    unsafe {
+        ndk_sys::__android_log_write(
+            ndk_sys::android_LogPriority_ANDROID_LOG_INFO as _,
+            c"SAPP".as_ptr() as _,
+            msg,
+        );
+    }
 }
 
 pub unsafe fn console_warn(msg: *const ::core::ffi::c_char) {
-    ndk_sys::__android_log_write(
-        ndk_sys::android_LogPriority_ANDROID_LOG_WARN as _,
-        b"SAPP\0".as_ptr() as _,
-        msg,
-    );
+    unsafe {
+        ndk_sys::__android_log_write(
+            ndk_sys::android_LogPriority_ANDROID_LOG_WARN as _,
+            c"SAPP".as_ptr() as _,
+            msg,
+        );
+    }
 }
 
 pub unsafe fn console_error(msg: *const ::core::ffi::c_char) {
-    ndk_sys::__android_log_write(
-        ndk_sys::android_LogPriority_ANDROID_LOG_ERROR as _,
-        b"SAPP\0".as_ptr() as _,
-        msg,
-    );
+    unsafe {
+        ndk_sys::__android_log_write(
+            ndk_sys::android_LogPriority_ANDROID_LOG_ERROR as _,
+            c"SAPP".as_ptr() as _,
+            msg,
+        );
+    }
 }
 
 // fn log_info(message: &str) {
@@ -142,42 +152,46 @@ struct MainThreadState {
 
 impl MainThreadState {
     unsafe fn destroy_surface(&mut self) {
-        (self.libegl.eglMakeCurrent)(
-            self.egl_display,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-        );
-        (self.libegl.eglDestroySurface)(self.egl_display, self.surface);
-        self.surface = std::ptr::null_mut();
+        unsafe {
+            (self.libegl.eglMakeCurrent)(
+                self.egl_display,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            );
+            (self.libegl.eglDestroySurface)(self.egl_display, self.surface);
+            self.surface = std::ptr::null_mut();
+        }
     }
 
     unsafe fn update_surface(&mut self, window: *mut ndk_sys::ANativeWindow) {
-        if !self.window.is_null() {
-            ndk_sys::ANativeWindow_release(self.window);
+        unsafe {
+            if !self.window.is_null() {
+                ndk_sys::ANativeWindow_release(self.window);
+            }
+            self.window = window;
+            if !self.surface.is_null() {
+                self.destroy_surface();
+            }
+
+            self.surface = (self.libegl.eglCreateWindowSurface)(
+                self.egl_display,
+                self.egl_config,
+                window as _,
+                std::ptr::null_mut(),
+            );
+
+            assert!(!self.surface.is_null());
+
+            let res = (self.libegl.eglMakeCurrent)(
+                self.egl_display,
+                self.surface,
+                self.surface,
+                self.egl_context,
+            );
+
+            assert!(res != 0);
         }
-        self.window = window;
-        if self.surface.is_null() == false {
-            self.destroy_surface();
-        }
-
-        self.surface = (self.libegl.eglCreateWindowSurface)(
-            self.egl_display,
-            self.egl_config,
-            window as _,
-            std::ptr::null_mut(),
-        );
-
-        assert!(!self.surface.is_null());
-
-        let res = (self.libegl.eglMakeCurrent)(
-            self.egl_display,
-            self.surface,
-            self.surface,
-            self.egl_context,
-        );
-
-        assert!(res != 0);
     }
 
     fn process_message(&mut self, msg: Message) {
@@ -255,7 +269,7 @@ impl MainThreadState {
     fn frame(&mut self) {
         self.event_handler.update();
 
-        if self.surface.is_null() == false {
+        if !self.surface.is_null() {
             self.update_requested = false;
             self.event_handler.draw();
 
@@ -316,66 +330,76 @@ impl MainThreadState {
 /// TODO: (this should be a GH issue)
 /// TODO: for reference - grep for "pthread_setspecific" in SDL2 sources, SDL fixed it!
 pub unsafe fn attach_jni_env() -> *mut ndk_sys::JNIEnv {
-    let mut env: *mut ndk_sys::JNIEnv = std::ptr::null_mut();
-    let attach_current_thread = (**VM).AttachCurrentThread.unwrap();
+    unsafe {
+        let mut env: *mut ndk_sys::JNIEnv = std::ptr::null_mut();
+        let attach_current_thread = (**VM).AttachCurrentThread.unwrap();
 
-    let res = attach_current_thread(VM, &mut env, std::ptr::null_mut());
-    assert!(res == 0);
+        let res = attach_current_thread(VM, &mut env, std::ptr::null_mut());
+        assert!(res == 0);
 
-    env
+        env
+    }
 }
 
 /// `Resources.getDisplayMetrics().density` — 1.0 = mdpi, 2.0 = xhdpi,
 /// etc. Returns 1.0 on any JNI hiccup.
 unsafe fn query_display_density() -> f32 {
-    if VM.is_null() || ACTIVITY.is_null() {
-        return 1.0;
-    }
-    let env = attach_jni_env();
-    if env.is_null() {
-        return 1.0;
-    }
+    unsafe {
+        if VM.is_null() || ACTIVITY.is_null() {
+            return 1.0;
+        }
+        let env = attach_jni_env();
+        if env.is_null() {
+            return 1.0;
+        }
 
-    let resources = ndk_utils::call_object_method!(
-        env,
-        ACTIVITY,
-        "getResources",
-        "()Landroid/content/res/Resources;"
-    );
-    if resources.is_null() {
-        return 1.0;
+        let resources = ndk_utils::call_object_method!(
+            env,
+            ACTIVITY,
+            "getResources",
+            "()Landroid/content/res/Resources;"
+        );
+        if resources.is_null() {
+            return 1.0;
+        }
+
+        let metrics = ndk_utils::call_object_method!(
+            env,
+            resources,
+            "getDisplayMetrics",
+            "()Landroid/util/DisplayMetrics;"
+        );
+        if metrics.is_null() {
+            return 1.0;
+        }
+
+        let get_object_class = (**env).GetObjectClass.unwrap();
+        let get_field_id = (**env).GetFieldID.unwrap();
+        let get_float_field = (**env).GetFloatField.unwrap();
+
+        let metrics_class = get_object_class(env, metrics);
+        let density_field = get_field_id(
+            env,
+            metrics_class,
+            c"density".as_ptr() as _,
+            c"F".as_ptr() as _,
+        );
+        if density_field.is_null() {
+            return 1.0;
+        }
+
+        let density = get_float_field(env, metrics, density_field);
+        if density > 0.0 { density } else { 1.0 }
     }
-
-    let metrics = ndk_utils::call_object_method!(
-        env,
-        resources,
-        "getDisplayMetrics",
-        "()Landroid/util/DisplayMetrics;"
-    );
-    if metrics.is_null() {
-        return 1.0;
-    }
-
-    let get_object_class = (**env).GetObjectClass.unwrap();
-    let get_field_id = (**env).GetFieldID.unwrap();
-    let get_float_field = (**env).GetFloatField.unwrap();
-
-    let metrics_class = get_object_class(env, metrics);
-    let density_field = get_field_id(
-        env,
-        metrics_class,
-        b"density\0".as_ptr() as _,
-        b"F\0".as_ptr() as _,
-    );
-    if density_field.is_null() {
-        return 1.0;
-    }
-
-    let density = get_float_field(env, metrics, density_field);
-    if density > 0.0 { density } else { 1.0 }
 }
 
 pub struct AndroidClipboard {}
+impl Default for AndroidClipboard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AndroidClipboard {
     pub fn new() -> AndroidClipboard {
         AndroidClipboard {}
@@ -424,158 +448,157 @@ pub unsafe fn run<F>(conf: crate::conf::Conf, f: F)
 where
     F: 'static + FnOnce() -> Box<dyn EventHandler>,
 {
-    if conf.platform.android_panic_hook {
-        use std::ffi::CString;
-        use std::panic;
+    unsafe {
+        if conf.platform.android_panic_hook {
+            use std::ffi::CString;
+            use std::panic;
 
-        panic::set_hook(Box::new(|info| {
-            let msg = CString::new(format!("{info}")).unwrap_or_else(|_| {
-                CString::new(format!("MALFORMED ERROR MESSAGE {:?}", info.location())).unwrap()
-            });
-            console_error(msg.as_ptr());
-        }));
-    }
+            panic::set_hook(Box::new(|info| {
+                let msg = CString::new(format!("{info}")).unwrap_or_else(|_| {
+                    CString::new(format!("MALFORMED ERROR MESSAGE {:?}", info.location())).unwrap()
+                });
+                console_error(msg.as_ptr());
+            }));
+        }
 
-    if conf.fullscreen {
-        let env = attach_jni_env();
-        set_full_screen(env, true);
-    }
+        if conf.fullscreen {
+            let env = attach_jni_env();
+            set_full_screen(env, true);
+        }
 
-    // yeah, just adding Send to outer F will do it, but it will brake the API
-    // in other backends
-    struct SendHack<F>(F);
-    unsafe impl<F> Send for SendHack<F> {}
+        // yeah, just adding Send to outer F will do it, but it will brake the API
+        // in other backends
+        struct SendHack<F>(F);
+        unsafe impl<F> Send for SendHack<F> {}
 
-    let f = SendHack(f);
+        let f = SendHack(f);
 
-    let (tx, rx) = mpsc::channel();
+        let (tx, rx) = mpsc::channel();
 
-    let tx2 = tx.clone();
-    MESSAGES_TX.with(move |messages_tx| *messages_tx.borrow_mut() = Some(tx2));
+        let tx2 = tx.clone();
+        MESSAGES_TX.with(move |messages_tx| *messages_tx.borrow_mut() = Some(tx2));
 
-    thread::spawn(move || {
-        let mut libegl = LibEgl::try_load().expect("Cant load LibEGL");
+        thread::spawn(move || {
+            // Move the whole SendHack wrapper into the closure: with 2021+ disjoint
+            // field capture, `f.0()` alone would capture the non-Send `F` directly.
+            let f = f;
+            let mut libegl = LibEgl::try_load().expect("Cant load LibEGL");
 
-        // skip all the messages until android will be able to actually open a window
-        //
-        // sometimes before launching an app android will show a permission dialog
-        // it is important to create GL context only after a first SurfaceChanged
-        let window = 'a: loop {
-            match rx.try_recv() {
-                Ok(Message::SurfaceCreated { window }) => {
+            // skip all the messages until android will be able to actually open a window
+            //
+            // sometimes before launching an app android will show a permission dialog
+            // it is important to create GL context only after a first SurfaceChanged
+            let window = 'a: loop {
+                if let Ok(Message::SurfaceCreated { window }) = rx.try_recv() {
                     break 'a window;
                 }
-                _ => {}
-            }
-        };
-        let (screen_width, screen_height) = 'a: loop {
-            match rx.try_recv() {
-                Ok(Message::SurfaceChanged { width, height }) => {
+            };
+            let (screen_width, screen_height) = 'a: loop {
+                if let Ok(Message::SurfaceChanged { width, height }) = rx.try_recv() {
                     break 'a (width as f32, height as f32);
                 }
-                _ => {}
+            };
+
+            let (egl_context, egl_config, egl_display) = crate::native::egl::create_egl_context(
+                &mut libegl,
+                std::ptr::null_mut(), /* EGL_DEFAULT_DISPLAY */
+                conf.platform.framebuffer_alpha,
+                conf.sample_count,
+            )
+            .expect("Cant create EGL context");
+
+            assert!(!egl_display.is_null());
+            assert!(!egl_config.is_null());
+
+            crate::native::gl::load_gl_funcs(|proc| {
+                let name = std::ffi::CString::new(proc).unwrap();
+                (libegl.eglGetProcAddress)(name.as_ptr() as _)
+            });
+
+            let surface = (libegl.eglCreateWindowSurface)(
+                egl_display,
+                egl_config,
+                window as _,
+                std::ptr::null_mut(),
+            );
+
+            if (libegl.eglMakeCurrent)(egl_display, surface, surface, egl_context) == 0 {
+                panic!();
             }
-        };
 
-        let (egl_context, egl_config, egl_display) = crate::native::egl::create_egl_context(
-            &mut libegl,
-            std::ptr::null_mut(), /* EGL_DEFAULT_DISPLAY */
-            conf.platform.framebuffer_alpha,
-            conf.sample_count,
-        )
-        .expect("Cant create EGL context");
+            let clipboard = Box::new(AndroidClipboard::new());
+            let tx_fn = Box::new(move |req| tx.send(Message::Request(req)).unwrap());
+            let density = query_display_density();
+            crate::set_or_replace_display(NativeDisplayData {
+                high_dpi: conf.high_dpi,
+                blocking_event_loop: conf.platform.blocking_event_loop,
+                dpi_scale: density,
+                ..NativeDisplayData::new(screen_width as _, screen_height as _, tx_fn, clipboard)
+            });
 
-        assert!(!egl_display.is_null());
-        assert!(!egl_config.is_null());
+            let event_handler = f.0();
+            let mut s = MainThreadState {
+                libegl,
+                egl_display,
+                egl_config,
+                egl_context,
+                surface,
+                window,
+                event_handler,
+                quit: false,
+                fullscreen: conf.fullscreen,
+                update_requested: true,
+                keymods: KeyMods {
+                    shift: false,
+                    ctrl: false,
+                    alt: false,
+                    logo: false,
+                },
+            };
 
-        crate::native::gl::load_gl_funcs(|proc| {
-            let name = std::ffi::CString::new(proc).unwrap();
-            (libegl.eglGetProcAddress)(name.as_ptr() as _)
-        });
+            let rx_timeout = conf
+                .platform
+                .sleep_interval_ms
+                .map(|sleep| Duration::from_millis(sleep as u64));
 
-        let surface = (libegl.eglCreateWindowSurface)(
-            egl_display,
-            egl_config,
-            window as _,
-            std::ptr::null_mut(),
-        );
+            while !s.quit {
+                let block_on_wait = conf.platform.blocking_event_loop && !s.update_requested;
 
-        if (libegl.eglMakeCurrent)(egl_display, surface, surface, egl_context) == 0 {
-            panic!();
-        }
+                if block_on_wait {
+                    // We don't need to loop here because the loop above consumes all
+                    // available messages. Instead we are going to block until receiving here.
 
-        let clipboard = Box::new(AndroidClipboard::new());
-        let tx_fn = Box::new(move |req| tx.send(Message::Request(req)).unwrap());
-        let density = query_display_density();
-        crate::set_or_replace_display(NativeDisplayData {
-            high_dpi: conf.high_dpi,
-            blocking_event_loop: conf.platform.blocking_event_loop,
-            dpi_scale: density,
-            ..NativeDisplayData::new(screen_width as _, screen_height as _, tx_fn, clipboard)
-        });
-
-        let event_handler = f.0();
-        let mut s = MainThreadState {
-            libegl,
-            egl_display,
-            egl_config,
-            egl_context,
-            surface,
-            window,
-            event_handler,
-            quit: false,
-            fullscreen: conf.fullscreen,
-            update_requested: true,
-            keymods: KeyMods {
-                shift: false,
-                ctrl: false,
-                alt: false,
-                logo: false,
-            },
-        };
-
-        let rx_timeout = conf
-            .platform
-            .sleep_interval_ms
-            .map(|sleep| Duration::from_millis(sleep as u64));
-
-        while !s.quit {
-            let block_on_wait = conf.platform.blocking_event_loop && !s.update_requested;
-
-            if block_on_wait {
-                // We don't need to loop here because the loop above consumes all
-                // available messages. Instead we are going to block until receiving here.
-
-                match rx_recv(&rx, rx_timeout) {
-                    Ok(msg) => s.process_message(msg),
-                    // Timeout so time to do periodic update()
-                    Err(mpsc::RecvTimeoutError::Timeout) => s.update_requested = true,
-                    Err(mpsc::RecvTimeoutError::Disconnected) => panic!(),
+                    match rx_recv(&rx, rx_timeout) {
+                        Ok(msg) => s.process_message(msg),
+                        // Timeout so time to do periodic update()
+                        Err(mpsc::RecvTimeoutError::Timeout) => s.update_requested = true,
+                        Err(mpsc::RecvTimeoutError::Disconnected) => panic!(),
+                    }
+                } else {
+                    // process all the messages from the main thread
+                    while let Ok(msg) = rx.try_recv() {
+                        s.process_message(msg);
+                    }
                 }
-            } else {
-                // process all the messages from the main thread
-                while let Ok(msg) = rx.try_recv() {
-                    s.process_message(msg);
+
+                if !conf.platform.blocking_event_loop || s.update_requested {
+                    s.frame();
                 }
+
+                thread::yield_now();
             }
 
-            if !conf.platform.blocking_event_loop || s.update_requested {
-                s.frame();
-            }
-
-            thread::yield_now();
-        }
-
-        (s.libegl.eglMakeCurrent)(
-            s.egl_display,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-        );
-        (s.libegl.eglDestroySurface)(s.egl_display, s.surface);
-        (s.libegl.eglDestroyContext)(s.egl_display, s.egl_context);
-        (s.libegl.eglTerminate)(s.egl_display);
-    });
+            (s.libegl.eglMakeCurrent)(
+                s.egl_display,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            );
+            (s.libegl.eglDestroySurface)(s.egl_display, s.surface);
+            (s.libegl.eglDestroyContext)(s.egl_display, s.egl_context);
+            (s.libegl.eglTerminate)(s.egl_display);
+        });
+    }
 }
 
 /// Adds a call to Receiver as if there was a `.recv_timeout_opt(timeout)`
@@ -591,7 +614,7 @@ fn rx_recv<T>(
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn jni_on_load(vm: *mut std::ffi::c_void) {
     unsafe {
         VM = vm as _;
@@ -599,23 +622,27 @@ extern "C" fn jni_on_load(vm: *mut std::ffi::c_void) {
 }
 
 unsafe fn create_native_window(surface: ndk_sys::jobject) -> *mut ndk_sys::ANativeWindow {
-    let env = attach_jni_env();
+    unsafe {
+        let env = attach_jni_env();
 
-    ndk_sys::ANativeWindow_fromSurface(env, surface)
+        ndk_sys::ANativeWindow_fromSurface(env, surface)
+    }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn Java_quad_1native_QuadNative_activityOnCreate(
     _: *mut ndk_sys::JNIEnv,
     _: ndk_sys::jobject,
     activity: ndk_sys::jobject,
 ) {
-    let env = attach_jni_env();
-    ACTIVITY = (**env).NewGlobalRef.unwrap()(env, activity);
-    quad_main();
+    unsafe {
+        let env = attach_jni_env();
+        ACTIVITY = (**env).NewGlobalRef.unwrap()(env, activity);
+        quad_main();
+    }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 unsafe extern "C" fn Java_quad_1native_QuadNative_activityOnResume(
     _: *mut ndk_sys::JNIEnv,
     _: ndk_sys::jobject,
@@ -623,7 +650,7 @@ unsafe extern "C" fn Java_quad_1native_QuadNative_activityOnResume(
     send_message(Message::Resume);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 unsafe extern "C" fn Java_quad_1native_QuadNative_activityOnPause(
     _: *mut ndk_sys::JNIEnv,
     _: ndk_sys::jobject,
@@ -631,7 +658,7 @@ unsafe extern "C" fn Java_quad_1native_QuadNative_activityOnPause(
     send_message(Message::Pause);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 unsafe extern "C" fn Java_quad_1native_QuadNative_activityOnDestroy(
     _: *mut ndk_sys::JNIEnv,
     _: ndk_sys::jobject,
@@ -639,7 +666,7 @@ unsafe extern "C" fn Java_quad_1native_QuadNative_activityOnDestroy(
     send_message(Message::Destroy);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn Java_quad_1native_QuadNative_surfaceOnSurfaceCreated(
     _: *mut ndk_sys::JNIEnv,
     _: ndk_sys::jobject,
@@ -649,7 +676,7 @@ extern "C" fn Java_quad_1native_QuadNative_surfaceOnSurfaceCreated(
     send_message(Message::SurfaceCreated { window });
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn Java_quad_1native_QuadNative_surfaceOnSurfaceDestroyed(
     _: *mut ndk_sys::JNIEnv,
     _: ndk_sys::jobject,
@@ -657,7 +684,7 @@ extern "C" fn Java_quad_1native_QuadNative_surfaceOnSurfaceDestroyed(
     send_message(Message::SurfaceDestroyed);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn Java_quad_1native_QuadNative_surfaceOnSurfaceChanged(
     _: *mut ndk_sys::JNIEnv,
     _: ndk_sys::jobject,
@@ -671,7 +698,7 @@ extern "C" fn Java_quad_1native_QuadNative_surfaceOnSurfaceChanged(
     });
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn Java_quad_1native_QuadNative_surfaceOnTouch(
     _: *mut ndk_sys::JNIEnv,
     _: ndk_sys::jobject,
@@ -691,12 +718,12 @@ extern "C" fn Java_quad_1native_QuadNative_surfaceOnTouch(
     send_message(Message::Touch {
         phase,
         touch_id: touch_id as _,
-        x: x as f32,
-        y: y as f32,
+        x,
+        y,
     });
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn Java_quad_1native_QuadNative_surfaceOnKeyDown(
     _: *mut ndk_sys::JNIEnv,
     _: ndk_sys::jobject,
@@ -707,7 +734,7 @@ extern "C" fn Java_quad_1native_QuadNative_surfaceOnKeyDown(
     send_message(Message::KeyDown { keycode });
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn Java_quad_1native_QuadNative_surfaceOnKeyUp(
     _: *mut ndk_sys::JNIEnv,
     _: ndk_sys::jobject,
@@ -718,7 +745,7 @@ extern "C" fn Java_quad_1native_QuadNative_surfaceOnKeyUp(
     send_message(Message::KeyUp { keycode });
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn Java_quad_1native_QuadNative_surfaceOnCharacter(
     _: *mut ndk_sys::JNIEnv,
     _: ndk_sys::jobject,
@@ -730,7 +757,9 @@ extern "C" fn Java_quad_1native_QuadNative_surfaceOnCharacter(
 }
 
 unsafe fn set_full_screen(env: *mut ndk_sys::JNIEnv, fullscreen: bool) {
-    ndk_utils::call_void_method!(env, ACTIVITY, "setFullScreen", "(Z)V", fullscreen as i32);
+    unsafe {
+        ndk_utils::call_void_method!(env, ACTIVITY, "setFullScreen", "(Z)V", fullscreen as i32);
+    }
 }
 
 #[repr(C)]
@@ -743,7 +772,7 @@ pub struct android_asset {
 // According to documentation, AAssetManager_fromJava is as available as an
 // AAssetManager_open, which was used before
 // For some reason it is missing fron ndk_sys binding
-extern "C" {
+unsafe extern "C" {
     pub fn AAssetManager_fromJava(
         env: *mut ndk_sys::JNIEnv,
         assetManager: ndk_sys::jobject,
@@ -751,31 +780,33 @@ extern "C" {
 }
 
 pub(crate) unsafe fn load_asset(filepath: *const ::core::ffi::c_char, out: *mut android_asset) {
-    let env = attach_jni_env();
+    unsafe {
+        let env = attach_jni_env();
 
-    let get_method_id = (**env).GetMethodID.unwrap();
-    let get_object_class = (**env).GetObjectClass.unwrap();
-    let call_object_method = (**env).CallObjectMethod.unwrap();
+        let get_method_id = (**env).GetMethodID.unwrap();
+        let get_object_class = (**env).GetObjectClass.unwrap();
+        let call_object_method = (**env).CallObjectMethod.unwrap();
 
-    let mid = (get_method_id)(
-        env,
-        get_object_class(env, ACTIVITY),
-        b"getAssets\0".as_ptr() as _,
-        b"()Landroid/content/res/AssetManager;\0".as_ptr() as _,
-    );
-    let asset_manager = (call_object_method)(env, ACTIVITY, mid);
-    let mgr = AAssetManager_fromJava(env, asset_manager);
-    let asset = ndk_sys::AAssetManager_open(mgr, filepath, ndk_sys::AASSET_MODE_BUFFER as _);
-    if asset.is_null() {
-        return;
-    }
-    let length = ndk_sys::AAsset_getLength64(asset);
-    // TODO: memory leak right here! this buffer would never freed
-    let buffer = libc::malloc(length as _);
-    if ndk_sys::AAsset_read(asset, buffer, length as _) > 0 {
-        ndk_sys::AAsset_close(asset);
+        let mid = (get_method_id)(
+            env,
+            get_object_class(env, ACTIVITY),
+            c"getAssets".as_ptr() as _,
+            c"()Landroid/content/res/AssetManager;".as_ptr() as _,
+        );
+        let asset_manager = (call_object_method)(env, ACTIVITY, mid);
+        let mgr = AAssetManager_fromJava(env, asset_manager);
+        let asset = ndk_sys::AAssetManager_open(mgr, filepath, ndk_sys::AASSET_MODE_BUFFER as _);
+        if asset.is_null() {
+            return;
+        }
+        let length = ndk_sys::AAsset_getLength64(asset);
+        // TODO: memory leak right here! this buffer would never freed
+        let buffer = libc::malloc(length as _);
+        if ndk_sys::AAsset_read(asset, buffer, length as _) > 0 {
+            ndk_sys::AAsset_close(asset);
 
-        (*out).content_length = length as _;
-        (*out).content = buffer as _;
+            (*out).content_length = length as _;
+            (*out).content = buffer as _;
+        }
     }
 }

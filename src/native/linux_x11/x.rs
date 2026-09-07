@@ -681,7 +681,7 @@ pub mod Xlib_h {
     pub type _XrmHashBucketRec = ();
     pub type _XPrivate = ();
 
-    extern "C" {
+    unsafe extern "C" {
         pub fn XInitThreads() -> libc::c_int;
         pub fn XrmInitialize();
         pub fn XOpenDisplay(_: *const libc::c_char) -> *mut Display;
@@ -904,7 +904,7 @@ pub mod Xutil_h {
     pub const NormalState: libc::c_int = 1 as libc::c_int;
     use super::X_h::{KeySym, Pixmap, VisualID, Window, XID};
     use super::Xlib_h::{Display, Visual, XKeyEvent, XPointer};
-    extern "C" {
+    unsafe extern "C" {
         pub fn XSetWMNormalHints(_: *mut Display, _: Window, _: *mut XSizeHints);
         pub fn XAllocSizeHints() -> *mut XSizeHints;
         pub fn Xutf8SetWMProperties(
@@ -936,7 +936,7 @@ pub mod Xresource_h {
         pub addr: XPointer,
     }
     use super::Xlib_h::{XPointer, _XrmHashBucketRec};
-    extern "C" {
+    unsafe extern "C" {
         pub fn XrmGetResource(
             _: XrmDatabase,
             _: *const libc::c_char,
@@ -950,7 +950,7 @@ pub mod Xresource_h {
 }
 pub mod XKBlib_h {
     use super::Xlib_h::Display;
-    extern "C" {
+    unsafe extern "C" {
         pub fn XkbSetDetectableAutoRepeat(
             _: *mut Display,
             _: libc::c_int,
@@ -959,13 +959,13 @@ pub mod XKBlib_h {
     }
 }
 pub mod stdlib_h {
-    extern "C" {
+    unsafe extern "C" {
         pub fn atof(__nptr: *const libc::c_char) -> libc::c_double;
 
     }
 }
 pub mod dlfcn_h {
-    extern "C" {
+    unsafe extern "C" {
         pub fn dlopen(__file: *const libc::c_char, __mode: libc::c_int) -> *mut libc::c_void;
         pub fn dlsym(__handle: *mut libc::c_void, __name: *const libc::c_char)
             -> *mut libc::c_void;
@@ -976,7 +976,7 @@ pub mod bits_dlfcn_h {
     pub const RTLD_GLOBAL: libc::c_int = 0x100 as libc::c_int;
 }
 pub mod string_h {
-    extern "C" {
+    unsafe extern "C" {
         pub fn strstr(_: *const libc::c_char, _: *const libc::c_char) -> *mut libc::c_char;
         pub fn strlen(_: *const libc::c_char) -> libc::c_ulong;
         pub fn strcmp(_: *const libc::c_char, _: *const libc::c_char) -> libc::c_int;
@@ -984,7 +984,7 @@ pub mod string_h {
     }
 }
 
-extern "C" {
+unsafe extern "C" {
     pub fn XSendEvent(
         _: *mut Display,
         _: Window,

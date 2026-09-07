@@ -85,16 +85,12 @@ macro_rules! get_utf_str {
 
 #[macro_export]
 macro_rules! new_global_ref {
-    ($env:expr, $obj:expr) => {{
-        (**$env).NewGlobalRef.unwrap()($env, $obj)
-    }};
+    ($env:expr, $obj:expr) => {{ (**$env).NewGlobalRef.unwrap()($env, $obj) }};
 }
 
 #[macro_export]
 macro_rules! new_local_ref {
-    ($env:expr, $obj:expr) => {{
-        (**$env).NewLocalRef.unwrap()($env, $obj)
-    }};
+    ($env:expr, $obj:expr) => {{ (**$env).NewLocalRef.unwrap()($env, $obj) }};
 }
 
 pub use {

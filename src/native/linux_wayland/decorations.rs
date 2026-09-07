@@ -31,32 +31,34 @@ pub(super) enum Decorations {
 // If we use client decorations, `libdecor` will handle the creation for us.
 // So this is used for either server or no decorations.
 unsafe fn create_xdg_toplevel(display: &mut WaylandPayload) {
-    let xdg_surface: *mut xdg_surface = wl_request_constructor!(
-        display.client,
-        display.xdg_wm_base,
-        extensions::xdg_shell::xdg_wm_base::get_xdg_surface,
-        &xdg_surface_interface,
-        display.surface
-    );
-    assert!(!xdg_surface.is_null());
-    (display.client.wl_proxy_add_listener)(
-        xdg_surface as _,
-        &XDG_SURFACE_LISTENER as *const _ as _,
-        display as *mut _ as _,
-    );
+    unsafe {
+        let xdg_surface: *mut xdg_surface = wl_request_constructor!(
+            display.client,
+            display.xdg_wm_base,
+            extensions::xdg_shell::xdg_wm_base::get_xdg_surface,
+            &xdg_surface_interface,
+            display.surface
+        );
+        assert!(!xdg_surface.is_null());
+        (display.client.wl_proxy_add_listener)(
+            xdg_surface as _,
+            &XDG_SURFACE_LISTENER as *const _ as _,
+            display as *mut _ as _,
+        );
 
-    display.xdg_toplevel = wl_request_constructor!(
-        display.client,
-        xdg_surface,
-        extensions::xdg_shell::xdg_surface::get_toplevel,
-        &extensions::xdg_shell::xdg_toplevel_interface
-    );
-    assert!(!display.xdg_toplevel.is_null());
-    (display.client.wl_proxy_add_listener)(
-        display.xdg_toplevel as _,
-        &XDG_TOPLEVEL_LISTENER as *const _ as _,
-        display as *mut _ as _,
-    );
+        display.xdg_toplevel = wl_request_constructor!(
+            display.client,
+            xdg_surface,
+            extensions::xdg_shell::xdg_surface::get_toplevel,
+            &extensions::xdg_shell::xdg_toplevel_interface
+        );
+        assert!(!display.xdg_toplevel.is_null());
+        (display.client.wl_proxy_add_listener)(
+            display.xdg_toplevel as _,
+            &XDG_TOPLEVEL_LISTENER as *const _ as _,
+            display as *mut _ as _,
+        );
+    }
 }
 
 impl Decorations {
@@ -83,86 +85,97 @@ impl Decorations {
         xdg_toplevel: *mut xdg_toplevel,
         title: &str,
     ) {
-        let title = std::ffi::CString::new(title).unwrap();
-        match self {
-            Decorations::None | Decorations::Server | Decorations::Fallback(..) => {
-                wl_request!(
-                    client,
-                    xdg_toplevel,
-                    extensions::xdg_shell::xdg_toplevel::set_title,
-                    title.as_ptr()
-                );
-            }
-            Decorations::LibDecor {
-                libdecor, frame, ..
-            } => {
-                (libdecor.libdecor_frame_set_title)(*frame, title.as_ptr());
+        unsafe {
+            let title = std::ffi::CString::new(title).unwrap();
+            match self {
+                Decorations::None | Decorations::Server | Decorations::Fallback(..) => {
+                    wl_request!(
+                        client,
+                        xdg_toplevel,
+                        extensions::xdg_shell::xdg_toplevel::set_title,
+                        title.as_ptr()
+                    );
+                }
+                Decorations::LibDecor {
+                    libdecor, frame, ..
+                } => {
+                    (libdecor.libdecor_frame_set_title)(*frame, title.as_ptr());
+                }
             }
         }
     }
 
     unsafe fn none(display: &mut WaylandPayload) -> Self {
-        create_xdg_toplevel(display);
-        Decorations::None
+        unsafe {
+            create_xdg_toplevel(display);
+            Decorations::None
+        }
     }
 
     unsafe fn fallback(display: &mut WaylandPayload) -> Self {
-        create_xdg_toplevel(display);
-        let d = crate::native_display().lock().unwrap();
-        let dpi_scale = d.dpi_scale as i32;
-        let decorations = fallback::Decorations::new(
-            display,
-            d.screen_width / dpi_scale,
-            d.screen_height / dpi_scale,
-        );
-        Decorations::Fallback(decorations)
+        unsafe {
+            create_xdg_toplevel(display);
+            let d = crate::native_display().lock().unwrap();
+            let dpi_scale = d.dpi_scale as i32;
+            let decorations = fallback::Decorations::new(
+                display,
+                d.screen_width / dpi_scale,
+                d.screen_height / dpi_scale,
+            );
+            Decorations::Fallback(decorations)
+        }
     }
 
     unsafe fn server(display: &mut WaylandPayload) -> Self {
-        create_xdg_toplevel(display);
+        unsafe {
+            create_xdg_toplevel(display);
 
-        let server_decoration: *mut extensions::xdg_decoration::zxdg_toplevel_decoration_v1 = wl_request_constructor!(
-            display.client,
-            display.decoration_manager,
-            extensions::xdg_decoration::zxdg_decoration_manager_v1::get_toplevel_decoration,
-            &extensions::xdg_decoration::zxdg_toplevel_decoration_v1_interface,
-            display.xdg_toplevel
-        );
-        assert!(!server_decoration.is_null());
+            let server_decoration: *mut extensions::xdg_decoration::zxdg_toplevel_decoration_v1 = wl_request_constructor!(
+                display.client,
+                display.decoration_manager,
+                extensions::xdg_decoration::zxdg_decoration_manager_v1::get_toplevel_decoration,
+                &extensions::xdg_decoration::zxdg_toplevel_decoration_v1_interface,
+                display.xdg_toplevel
+            );
+            assert!(!server_decoration.is_null());
 
-        wl_request!(
-            display.client,
-            server_decoration,
-            extensions::xdg_decoration::zxdg_toplevel_decoration_v1::set_mode,
-            extensions::xdg_decoration::ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE
-        );
-        Decorations::Server
+            wl_request!(
+                display.client,
+                server_decoration,
+                extensions::xdg_decoration::zxdg_toplevel_decoration_v1::set_mode,
+                extensions::xdg_decoration::ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE
+            );
+            Decorations::Server
+        }
     }
 
     unsafe fn try_libdecor(display: &mut WaylandPayload, resizable: bool) -> Self {
-        if let Ok(libdecor) = LibDecor::try_load() {
-            let context = (libdecor.libdecor_new)(display.display, &mut LIBDECOR_INTERFACE as _);
-            let frame = (libdecor.libdecor_decorate)(
-                context,
-                display.surface,
-                &mut LIBDECOR_FRAME_INTERFACE as _,
-                display as *mut _ as _,
-            );
-            (libdecor.libdecor_frame_map)(frame);
-            display.xdg_toplevel = (libdecor.libdecor_frame_get_xdg_toplevel)(frame);
-            use extensions::libdecor::LIBDECOR_ACTION_RESIZE as RESIZE;
-            if resizable {
-                (libdecor.libdecor_frame_set_capabilities)(frame, RESIZE);
+        unsafe {
+            if let Ok(libdecor) = LibDecor::try_load() {
+                let context =
+                    (libdecor.libdecor_new)(display.display, &mut LIBDECOR_INTERFACE as _);
+                let frame = (libdecor.libdecor_decorate)(
+                    context,
+                    display.surface,
+                    &mut LIBDECOR_FRAME_INTERFACE as _,
+                    display as *mut _ as _,
+                );
+                (libdecor.libdecor_frame_map)(frame);
+                display.xdg_toplevel = (libdecor.libdecor_frame_get_xdg_toplevel)(frame);
+                use extensions::libdecor::LIBDECOR_ACTION_RESIZE as RESIZE;
+                if resizable {
+                    (libdecor.libdecor_frame_set_capabilities)(frame, RESIZE);
+                } else {
+                    (libdecor.libdecor_frame_unset_capabilities)(frame, RESIZE);
+                }
+                Decorations::LibDecor {
+                    libdecor,
+                    context,
+                    frame,
+                }
             } else {
-                (libdecor.libdecor_frame_unset_capabilities)(frame, RESIZE);
+                Decorations::none(display)
             }
-            Decorations::LibDecor {
-                libdecor,
-                context,
-                frame,
-            }
-        } else {
-            Decorations::none(display)
         }
     }
 
@@ -180,63 +193,73 @@ unsafe extern "C" fn xdg_surface_handle_configure(
     xdg_surface: *mut extensions::xdg_shell::xdg_surface,
     serial: u32,
 ) {
-    assert!(!data.is_null());
-    let payload: &mut WaylandPayload = &mut *(data as *mut _);
+    unsafe {
+        assert!(!data.is_null());
+        let payload: &mut WaylandPayload = &mut *(data as *mut _);
 
-    wl_request!(
-        payload.client,
-        xdg_surface,
-        extensions::xdg_shell::xdg_surface::ack_configure,
-        serial
-    );
-    wl_request!(payload.client, payload.surface, WL_SURFACE_COMMIT)
+        wl_request!(
+            payload.client,
+            xdg_surface,
+            extensions::xdg_shell::xdg_surface::ack_configure,
+            serial
+        );
+        wl_request!(payload.client, payload.surface, WL_SURFACE_COMMIT)
+    }
 }
 
 unsafe extern "C" fn handle_configure(data: *mut std::ffi::c_void, width: i32, height: i32) {
-    assert!(!data.is_null());
-    let payload: &mut WaylandPayload = &mut *(data as *mut _);
+    unsafe {
+        assert!(!data.is_null());
+        let payload: &mut WaylandPayload = &mut *(data as *mut _);
 
-    if width != 0 && height != 0 {
-        let mut d = crate::native_display().lock().unwrap();
-        // Currently non-integer scales are not supported
-        let dpi_scale = d.dpi_scale as i32;
-        let screen_width = width * dpi_scale;
-        let screen_height = height * dpi_scale;
-        // screen_width / screen_height are the actual numbers of pixels
-        d.screen_width = screen_width;
-        d.screen_height = screen_height;
-        drop(d);
+        if width != 0 && height != 0 {
+            let mut d = crate::native_display().lock().unwrap();
+            // Currently non-integer scales are not supported
+            let dpi_scale = d.dpi_scale as i32;
+            let screen_width = width * dpi_scale;
+            let screen_height = height * dpi_scale;
+            // screen_width / screen_height are the actual numbers of pixels
+            d.screen_width = screen_width;
+            d.screen_height = screen_height;
+            drop(d);
 
-        let mut window_width = screen_width;
-        let mut window_height = screen_height;
-        if let Decorations::Fallback(fallback) = &payload.decorations {
-            window_width -= fallback::Decorations::WIDTH * 2 * dpi_scale;
-            window_height -=
-                (fallback::Decorations::BAR_HEIGHT + fallback::Decorations::WIDTH) * dpi_scale;
-            fallback.resize(&mut payload.client, width, height);
-        }
-        (payload.egl.wl_egl_window_resize)(payload.egl_window, window_width, window_height, 0, 0);
-        // We need to ensure that the buffer has been correctly resized before setting the
-        // dpi_scale, since Wayland would rather crash than letting you have a width that's an
-        // odd number on a display with 2x dpi...
-        (payload.client.wl_display_dispatch_pending)(payload.display);
-        wl_request!(
-            payload.client,
-            payload.surface,
-            WL_SURFACE_SET_BUFFER_SCALE,
-            dpi_scale
-        );
-        // The compositor can send multiple resizing configure during a single frame, and we
-        // probably don't want to fire the resize event for every one of them
-        // So if we still have a Resize event in the queue, instead of pushing a new one, we batch
-        // them by modifying the dimension
-        if let Some(WaylandEvent::Resize(width, height)) = payload.events.last_mut() {
-            *width = screen_width as _;
-            *height = screen_height as _;
-        } else {
-            payload
-                .events
-                .push(WaylandEvent::Resize(screen_width as _, screen_height as _));
+            let mut window_width = screen_width;
+            let mut window_height = screen_height;
+            if let Decorations::Fallback(fallback) = &payload.decorations {
+                window_width -= fallback::Decorations::WIDTH * 2 * dpi_scale;
+                window_height -=
+                    (fallback::Decorations::BAR_HEIGHT + fallback::Decorations::WIDTH) * dpi_scale;
+                fallback.resize(&mut payload.client, width, height);
+            }
+            (payload.egl.wl_egl_window_resize)(
+                payload.egl_window,
+                window_width,
+                window_height,
+                0,
+                0,
+            );
+            // We need to ensure that the buffer has been correctly resized before setting the
+            // dpi_scale, since Wayland would rather crash than letting you have a width that's an
+            // odd number on a display with 2x dpi...
+            (payload.client.wl_display_dispatch_pending)(payload.display);
+            wl_request!(
+                payload.client,
+                payload.surface,
+                WL_SURFACE_SET_BUFFER_SCALE,
+                dpi_scale
+            );
+            // The compositor can send multiple resizing configure during a single frame, and we
+            // probably don't want to fire the resize event for every one of them
+            // So if we still have a Resize event in the queue, instead of pushing a new one, we batch
+            // them by modifying the dimension
+            if let Some(WaylandEvent::Resize(width, height)) = payload.events.last_mut() {
+                *width = screen_width as _;
+                *height = screen_height as _;
+            } else {
+                payload
+                    .events
+                    .push(WaylandEvent::Resize(screen_width as _, screen_height as _));
+            }
         }
     }
 }
@@ -248,7 +271,9 @@ unsafe extern "C" fn xdg_toplevel_handle_configure(
     height: i32,
     _states: *mut wl_array,
 ) {
-    handle_configure(data, width, height);
+    unsafe {
+        handle_configure(data, width, height);
+    }
 }
 
 unsafe extern "C" fn libdecor_frame_handle_configure(
@@ -256,29 +281,31 @@ unsafe extern "C" fn libdecor_frame_handle_configure(
     configuration: *mut libdecor_configuration,
     data: *mut c_void,
 ) {
-    let display: &mut WaylandPayload = &mut *(data as *mut _);
-    let libdecor = display.decorations.libdecor().unwrap();
+    unsafe {
+        let display: &mut WaylandPayload = &mut *(data as *mut _);
+        let libdecor = display.decorations.libdecor().unwrap();
 
-    let mut width: c_int = 0;
-    let mut height: c_int = 0;
+        let mut width: c_int = 0;
+        let mut height: c_int = 0;
 
-    if (libdecor.libdecor_configuration_get_content_size)(
-        configuration,
-        frame,
-        &mut width,
-        &mut height,
-    ) == 0
-    {
-        let d = crate::native_display().lock().unwrap();
-        let dpi_scale = d.dpi_scale as i32;
-        width = d.screen_width / dpi_scale;
-        height = d.screen_height / dpi_scale;
+        if (libdecor.libdecor_configuration_get_content_size)(
+            configuration,
+            frame,
+            &mut width,
+            &mut height,
+        ) == 0
+        {
+            let d = crate::native_display().lock().unwrap();
+            let dpi_scale = d.dpi_scale as i32;
+            width = d.screen_width / dpi_scale;
+            height = d.screen_height / dpi_scale;
+        }
+        let state = (libdecor.libdecor_state_new)(width, height);
+        (libdecor.libdecor_frame_commit)(frame, state, configuration);
+        (libdecor.libdecor_state_free)(state);
+
+        handle_configure(data, width, height);
     }
-    let state = (libdecor.libdecor_state_new)(width, height);
-    (libdecor.libdecor_frame_commit)(frame, state, configuration);
-    (libdecor.libdecor_state_free)(state);
-
-    handle_configure(data, width, height);
 }
 
 unsafe extern "C" fn xdg_toplevel_handle_close(
@@ -299,8 +326,10 @@ unsafe extern "C" fn libdecor_handle_error(
     _error: *mut libdecor_error,
     message: *const c_char,
 ) {
-    let message = core::ffi::CStr::from_ptr(message).to_str().unwrap();
-    eprintln!("{}", message);
+    unsafe {
+        let message = core::ffi::CStr::from_ptr(message).to_str().unwrap();
+        eprintln!("{}", message);
+    }
 }
 static mut LIBDECOR_INTERFACE: libdecor_interface = libdecor_interface {
     error: libdecor_handle_error,
@@ -323,9 +352,10 @@ static mut XDG_SURFACE_LISTENER: xdg_surface_listener = xdg_surface_listener {
 mod fallback {
     use crate::{
         native::linux_wayland::{
+            WaylandPayload,
             extensions::viewporter::{wp_viewport, wp_viewport_interface, wp_viewporter},
             libwayland_client::*,
-            shm, WaylandPayload,
+            shm,
         },
         wl_request, wl_request_constructor,
     };
@@ -356,40 +386,42 @@ mod fallback {
         w: i32,
         h: i32,
     ) -> Decoration {
-        let surface = wl_request_constructor!(
-            display.client,
-            compositor,
-            WL_COMPOSITOR_CREATE_SURFACE,
-            display.client.wl_surface_interface,
-        );
+        unsafe {
+            let surface = wl_request_constructor!(
+                display.client,
+                compositor,
+                WL_COMPOSITOR_CREATE_SURFACE,
+                display.client.wl_surface_interface,
+            );
 
-        let subsurface = wl_request_constructor!(
-            display.client,
-            subcompositor,
-            WL_SUBCOMPOSITOR_GET_SUBSURFACE,
-            display.client.wl_subsurface_interface,
-            surface,
-            parent
-        );
+            let subsurface = wl_request_constructor!(
+                display.client,
+                subcompositor,
+                WL_SUBCOMPOSITOR_GET_SUBSURFACE,
+                display.client.wl_subsurface_interface,
+                surface,
+                parent
+            );
 
-        wl_request!(display.client, subsurface, WL_SUBSURFACE_SET_POSITION, x, y);
+            wl_request!(display.client, subsurface, WL_SUBSURFACE_SET_POSITION, x, y);
 
-        let viewport = wl_request_constructor!(
-            display.client,
-            display.viewporter,
-            wp_viewporter::get_viewport,
-            &wp_viewport_interface,
-            surface
-        );
+            let viewport = wl_request_constructor!(
+                display.client,
+                display.viewporter,
+                wp_viewporter::get_viewport,
+                &wp_viewport_interface,
+                surface
+            );
 
-        wl_request!(display.client, viewport, wp_viewport::set_destination, w, h);
-        wl_request!(display.client, surface, WL_SURFACE_ATTACH, buffer, 0, 0);
-        wl_request!(display.client, surface, WL_SURFACE_COMMIT);
+            wl_request!(display.client, viewport, wp_viewport::set_destination, w, h);
+            wl_request!(display.client, surface, WL_SURFACE_ATTACH, buffer, 0, 0);
+            wl_request!(display.client, surface, WL_SURFACE_COMMIT);
 
-        Decoration {
-            surface,
-            subsurface,
-            viewport,
+            Decoration {
+                surface,
+                subsurface,
+                viewport,
+            }
         }
     }
 
@@ -402,113 +434,117 @@ mod fallback {
             width: i32,
             height: i32,
         ) -> Decorations {
-            let buffer = shm::create_shm_buffer(
-                &mut display.client,
-                display.shm,
-                1,
-                1,
-                &[200, 200, 200, 255],
-            );
+            unsafe {
+                let buffer = shm::create_shm_buffer(
+                    &mut display.client,
+                    display.shm,
+                    1,
+                    1,
+                    &[200, 200, 200, 255],
+                );
 
-            Decorations {
-                buffer,
-                top_decoration: create_decoration(
-                    display,
-                    display.compositor,
-                    display.subcompositor,
-                    display.surface,
+                Decorations {
                     buffer,
-                    -Self::WIDTH,
-                    -Self::BAR_HEIGHT,
-                    width + Self::WIDTH * Self::WIDTH,
-                    Self::BAR_HEIGHT,
-                ),
-                left_decoration: create_decoration(
-                    display,
-                    display.compositor,
-                    display.subcompositor,
-                    display.surface,
-                    buffer,
-                    -Self::WIDTH,
-                    -Self::BAR_HEIGHT,
-                    Self::WIDTH,
-                    height + Self::BAR_HEIGHT,
-                ),
-                right_decoration: create_decoration(
-                    display,
-                    display.compositor,
-                    display.subcompositor,
-                    display.surface,
-                    buffer,
-                    width,
-                    -Self::BAR_HEIGHT,
-                    Self::WIDTH,
-                    height + Self::BAR_HEIGHT,
-                ),
-                bottom_decoration: create_decoration(
-                    display,
-                    display.compositor,
-                    display.subcompositor,
-                    display.surface,
-                    buffer,
-                    -Self::WIDTH,
-                    height,
-                    width + Self::WIDTH,
-                    Self::WIDTH,
-                ),
+                    top_decoration: create_decoration(
+                        display,
+                        display.compositor,
+                        display.subcompositor,
+                        display.surface,
+                        buffer,
+                        -Self::WIDTH,
+                        -Self::BAR_HEIGHT,
+                        width + Self::WIDTH * Self::WIDTH,
+                        Self::BAR_HEIGHT,
+                    ),
+                    left_decoration: create_decoration(
+                        display,
+                        display.compositor,
+                        display.subcompositor,
+                        display.surface,
+                        buffer,
+                        -Self::WIDTH,
+                        -Self::BAR_HEIGHT,
+                        Self::WIDTH,
+                        height + Self::BAR_HEIGHT,
+                    ),
+                    right_decoration: create_decoration(
+                        display,
+                        display.compositor,
+                        display.subcompositor,
+                        display.surface,
+                        buffer,
+                        width,
+                        -Self::BAR_HEIGHT,
+                        Self::WIDTH,
+                        height + Self::BAR_HEIGHT,
+                    ),
+                    bottom_decoration: create_decoration(
+                        display,
+                        display.compositor,
+                        display.subcompositor,
+                        display.surface,
+                        buffer,
+                        -Self::WIDTH,
+                        height,
+                        width + Self::WIDTH,
+                        Self::WIDTH,
+                    ),
+                }
             }
         }
 
         pub unsafe fn resize(&self, client: &mut LibWaylandClient, width: i32, height: i32) {
-            wl_request!(
-                client,
-                self.top_decoration.viewport,
-                wp_viewport::set_destination,
-                width,
-                Self::BAR_HEIGHT
-            );
-            wl_request!(client, self.top_decoration.surface, WL_SURFACE_COMMIT);
+            unsafe {
+                wl_request!(
+                    client,
+                    self.top_decoration.viewport,
+                    wp_viewport::set_destination,
+                    width,
+                    Self::BAR_HEIGHT
+                );
+                wl_request!(client, self.top_decoration.surface, WL_SURFACE_COMMIT);
 
-            wl_request!(
-                client,
-                self.left_decoration.viewport,
-                wp_viewport::set_destination,
-                Self::WIDTH,
-                height
-            );
-            wl_request!(client, self.left_decoration.surface, WL_SURFACE_COMMIT);
+                wl_request!(
+                    client,
+                    self.left_decoration.viewport,
+                    wp_viewport::set_destination,
+                    Self::WIDTH,
+                    height
+                );
+                wl_request!(client, self.left_decoration.surface, WL_SURFACE_COMMIT);
 
-            wl_request!(
-                client,
-                self.right_decoration.subsurface,
-                WL_SUBSURFACE_SET_POSITION,
-                width - Self::WIDTH * 2,
-                -Self::BAR_HEIGHT
-            );
-            wl_request!(
-                client,
-                self.right_decoration.viewport,
-                wp_viewport::set_destination,
-                Self::WIDTH,
-                height
-            );
-            wl_request!(client, self.right_decoration.surface, WL_SURFACE_COMMIT);
+                wl_request!(
+                    client,
+                    self.right_decoration.subsurface,
+                    WL_SUBSURFACE_SET_POSITION,
+                    width - Self::WIDTH * 2,
+                    -Self::BAR_HEIGHT
+                );
+                wl_request!(
+                    client,
+                    self.right_decoration.viewport,
+                    wp_viewport::set_destination,
+                    Self::WIDTH,
+                    height
+                );
+                wl_request!(client, self.right_decoration.surface, WL_SURFACE_COMMIT);
 
-            wl_request!(
-                client,
-                self.bottom_decoration.subsurface,
-                WL_SUBSURFACE_SET_POSITION,
-                0,
-                height - Self::BAR_HEIGHT - Self::WIDTH
-            );
-            wl_request!(
-                client,
-                self.bottom_decoration.viewport,
-                wp_viewport::set_destination,
-                width - Self::WIDTH * 2,
-                Self::WIDTH
-            );
-            wl_request!(client, self.bottom_decoration.surface, WL_SURFACE_COMMIT);
+                wl_request!(
+                    client,
+                    self.bottom_decoration.subsurface,
+                    WL_SUBSURFACE_SET_POSITION,
+                    0,
+                    height - Self::BAR_HEIGHT - Self::WIDTH
+                );
+                wl_request!(
+                    client,
+                    self.bottom_decoration.viewport,
+                    wp_viewport::set_destination,
+                    width - Self::WIDTH * 2,
+                    Self::WIDTH
+                );
+                wl_request!(client, self.bottom_decoration.surface, WL_SURFACE_COMMIT);
+            }
         }
     }
 }

@@ -1,6 +1,6 @@
 use miniquad::*;
 
-use glam::{vec3, Mat4};
+use glam::{Mat4, vec3};
 
 struct Stage {
     display_pipeline: Pipeline,
@@ -69,7 +69,7 @@ impl Stage {
         let vertex_buffer = ctx.new_buffer(
             BufferType::VertexBuffer,
             BufferUsage::Immutable,
-            BufferSource::slice(&vertices),
+            BufferSource::slice(vertices),
         );
 
         #[rustfmt::skip]
@@ -85,18 +85,18 @@ impl Stage {
         let index_buffer = ctx.new_buffer(
             BufferType::IndexBuffer,
             BufferUsage::Immutable,
-            BufferSource::slice(&indices),
+            BufferSource::slice(indices),
         );
 
         let offscreen_bind = Bindings {
-            vertex_buffers: vec![vertex_buffer.clone()],
-            index_buffer: index_buffer.clone(),
+            vertex_buffers: vec![vertex_buffer],
+            index_buffer,
             images: vec![],
         };
 
         let display_bind = Bindings {
             vertex_buffers: vec![vertex_buffer],
-            index_buffer: index_buffer,
+            index_buffer,
             images: vec![color_img],
         };
 
@@ -172,8 +172,13 @@ impl EventHandler for Stage {
 
     fn draw(&mut self) {
         let (width, height) = window::screen_size();
-        let proj = Mat4::perspective_rh_gl(60.0f32.to_radians(), width / height, 0.01, 10.0);
-        let view = Mat4::look_at_rh(
+        let proj = glam::camera::rh::proj::opengl::perspective(
+            60.0f32.to_radians(),
+            width / height,
+            0.01,
+            10.0,
+        );
+        let view = glam::camera::rh::view::look_at_mat4(
             vec3(0.0, 1.5, 3.0),
             vec3(0.0, 0.0, 0.0),
             vec3(0.0, 1.0, 0.0),

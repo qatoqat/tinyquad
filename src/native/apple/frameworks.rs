@@ -8,14 +8,16 @@
 #![allow(non_upper_case_globals)]
 #![allow(non_snake_case)]
 #![allow(dead_code)]
+// Bindings-style helpers take `ObjcId` raw pointers for ObjC message sends.
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
 
 pub use {
     objc::{
-        class,
+        Encode, Encoding, class,
         declare::ClassDecl,
         msg_send,
-        runtime::{Class, Object, Sel, BOOL, NO, YES},
-        sel, sel_impl, Encode, Encoding,
+        runtime::{BOOL, Class, NO, Object, Sel, YES},
+        sel, sel_impl,
     },
     std::{ffi::c_void, ptr::NonNull},
 };
@@ -66,13 +68,13 @@ impl Drop for RcObjcId {
 }
 
 #[link(name = "System")]
-extern "C" {
+unsafe extern "C" {
     pub static _NSConcreteStackBlock: [*const c_void; 32];
     pub static _NSConcreteBogusBlock: [*const c_void; 32];
 }
 
 #[link(name = "Foundation", kind = "framework")]
-extern "C" {
+unsafe extern "C" {
     pub static NSRunLoopCommonModes: ObjcId;
     pub static NSDefaultRunLoopMode: ObjcId;
     pub static NSEventTrackingRunLoopMode: ObjcId;
@@ -96,7 +98,7 @@ extern "C" {
 }
 
 #[link(name = "ImageIO", kind = "framework")]
-extern "C" {
+unsafe extern "C" {
     pub static kUTTypePNG: ObjcId;
     pub fn CGImageDestinationCreateWithURL(
         url: ObjcId,
@@ -110,7 +112,7 @@ extern "C" {
 
 #[cfg(target_os = "macos")]
 #[link(name = "AppKit", kind = "framework")]
-extern "C" {
+unsafe extern "C" {
     pub static NSPasteboardURLReadingFileURLsOnlyKey: ObjcId;
     pub static NSTrackingArea: ObjcId;
     pub static NSStringPboardType: ObjcId;
@@ -119,7 +121,7 @@ extern "C" {
 
 #[cfg(target_os = "ios")]
 #[link(name = "GLKit", kind = "framework")]
-extern "C" {}
+unsafe extern "C" {}
 
 pub const GLKViewDrawableColorFormatRGBA8888: i32 = 0;
 
@@ -136,7 +138,7 @@ pub enum GLKViewDrawableStencilFormat {
 }
 #[cfg(any(target_os = "ios", target_os = "tvos"))]
 #[link(name = "UIKit", kind = "framework")]
-extern "C" {
+unsafe extern "C" {
     pub static UIKeyboardDidShowNotification: ObjcId;
     pub static UIKeyboardWillHideNotification: ObjcId;
     pub static UIKeyboardDidChangeFrameNotification: ObjcId;
@@ -149,7 +151,7 @@ extern "C" {
 }
 
 #[link(name = "Vision", kind = "framework")]
-extern "C" {
+unsafe extern "C" {
     pub static VNImageRequestHandler: ObjcId;
     pub static VNRecognizeTextRequest: ObjcId;
 }
@@ -162,7 +164,7 @@ pub const kCGMouseEventClickState: u32 = 1;
 type DataReleaseCallback = unsafe extern "C" fn(*mut c_void, *const c_void, usize);
 
 #[link(name = "CoreGraphics", kind = "framework")]
-extern "C" {
+unsafe extern "C" {
     pub fn CGEventSourceCreate(state_id: u32) -> ObjcId;
     pub fn CGEventSetIntegerValueField(event: ObjcId, field: u32, value: u64);
     pub fn CGEventCreateMouseEvent(
@@ -222,7 +224,7 @@ extern "C" {
 // Some CoreGraphics functions are only available on macOS
 #[cfg(target_os = "macos")]
 #[link(name = "CoreGraphics", kind = "framework")]
-extern "C" {
+unsafe extern "C" {
     pub fn CGMainDisplayID() -> u32;
     pub fn CGDisplayPixelsHigh(display: u32) -> u64;
 }
@@ -232,7 +234,7 @@ pub const kCGImageAlphaLast: u32 = 3;
 pub const kCGRenderingIntentDefault: u32 = 0;
 
 #[link(name = "Metal", kind = "framework")]
-extern "C" {
+unsafe extern "C" {
     pub fn MTLCreateSystemDefaultDevice() -> ObjcId;
     #[cfg(not(target_os = "ios"))]
     pub fn MTLCopyAllDevices() -> ObjcId; //TODO: Array
@@ -284,7 +286,7 @@ pub const kCVTimeIsIndefinite: i32 = 1 << 0;
 
 #[cfg(target_os = "macos")]
 #[link(name = "CoreVideo", kind = "framework")]
-extern "C" {
+unsafe extern "C" {
     pub fn CVDisplayLinkCreateWithActiveCGDisplays(display_link_out: *mut CVDisplayLinkRef) -> i32;
     pub fn CVDisplayLinkSetOutputCallback(
         display_link: CVDisplayLinkRef,
@@ -294,7 +296,9 @@ extern "C" {
     pub fn CVDisplayLinkStart(display_link: CVDisplayLinkRef) -> i32;
     pub fn CVDisplayLinkStop(display_link: CVDisplayLinkRef) -> i32;
     pub fn CVDisplayLinkRelease(display_link: CVDisplayLinkRef);
-    pub fn CVDisplayLinkGetNominalOutputVideoRefreshPeriod(display_link: CVDisplayLinkRef) -> CVTime;
+    pub fn CVDisplayLinkGetNominalOutputVideoRefreshPeriod(
+        display_link: CVDisplayLinkRef,
+    ) -> CVTime;
 }
 
 // Foundation

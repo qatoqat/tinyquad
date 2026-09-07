@@ -1,10 +1,10 @@
 use std::{ffi::OsString, os::windows::ffi::OsStringExt, path::PathBuf};
 
 use crate::{
+    CursorIcon, EventHandler,
     conf::{Conf, Icon},
     event::{KeyMods, MouseButton},
     native::{NativeDisplayData, Request},
-    CursorIcon, EventHandler,
 };
 
 use winapi::{
@@ -56,7 +56,7 @@ const IACE_DEFAULT: DWORD = 0x0010;
 
 // COMPOSITIONFORM structure
 #[repr(C)]
-#[allow(non_snake_case)]
+#[allow(non_snake_case, non_camel_case_types, clippy::upper_case_acronyms)]
 struct COMPOSITIONFORM {
     dwStyle: DWORD,
     ptCurrentPos: POINT,
@@ -65,7 +65,7 @@ struct COMPOSITIONFORM {
 
 // CANDIDATEFORM structure
 #[repr(C)]
-#[allow(non_snake_case)]
+#[allow(non_snake_case, non_camel_case_types, clippy::upper_case_acronyms)]
 struct CANDIDATEFORM {
     dwIndex: DWORD,
     dwStyle: DWORD,
@@ -75,8 +75,13 @@ struct CANDIDATEFORM {
 
 // Link to imm32.dll for IME support
 #[link(name = "imm32")]
-extern "system" {
-    fn ImmGetCompositionStringW(himc: HIMC, index: DWORD, buf: *mut std::ffi::c_void, len: DWORD) -> i32;
+unsafe extern "system" {
+    fn ImmGetCompositionStringW(
+        himc: HIMC,
+        index: DWORD,
+        buf: *mut std::ffi::c_void,
+        len: DWORD,
+    ) -> i32;
     fn ImmAssociateContextEx(hwnd: HWND, himc: HIMC, flags: DWORD) -> i32;
     fn ImmAssociateContext(hwnd: HWND, himc: HIMC) -> HIMC;
     fn ImmCreateContext() -> HIMC;
@@ -165,7 +170,7 @@ impl WindowsDisplay {
             ImmReleaseContext(self.wnd, himc);
         }
     }
-    
+
     /// Enable or disable IME for the window.
     /// When disabled, the IME will not process keyboard input, useful for game controls.
     fn set_ime_enabled(&mut self, enabled: bool) {
@@ -181,7 +186,7 @@ impl WindowsDisplay {
             }
         }
     }
-    
+
     fn set_mouse_cursor(&mut self, cursor_icon: CursorIcon) {
         let cursor_name = match cursor_icon {
             CursorIcon::Default => IDC_ARROW,
@@ -248,9 +253,7 @@ impl WindowsDisplay {
     fn set_window_position(&mut self, new_x: u32, new_y: u32) {
         let mut rect: RECT = unsafe { std::mem::zeroed() };
         if unsafe { GetClientRect(self.wnd, &mut rect as *mut _ as _) } != 0 {
-            let mut new_rect = rect;
-            new_rect.right = new_rect.right - new_rect.left + new_x as i32;
-            new_rect.bottom = new_rect.bottom - new_rect.top + new_y as i32;
+            // SWP_NOSIZE keeps the current window size, so only the position matters.
             unsafe {
                 SetWindowPos(
                     self.wnd,
@@ -325,50 +328,54 @@ fn get_win_style(is_fullscreen: bool, is_resizable: bool) -> DWORD {
 }
 
 unsafe fn update_clip_rect(hwnd: HWND) {
-    // Retrieve the screen coordinates of the client area,
-    // and convert them into client coordinates.
-    let mut rect: RECT = std::mem::zeroed();
+    unsafe {
+        // Retrieve the screen coordinates of the client area,
+        // and convert them into client coordinates.
+        let mut rect: RECT = std::mem::zeroed();
 
-    GetClientRect(hwnd, &mut rect as *mut _ as _);
-    let mut upper_left = POINT {
-        x: rect.left,
-        y: rect.top,
-    };
-    let mut lower_right = POINT {
-        x: rect.right,
-        y: rect.bottom,
-    };
+        GetClientRect(hwnd, &mut rect as *mut _ as _);
+        let mut upper_left = POINT {
+            x: rect.left,
+            y: rect.top,
+        };
+        let mut lower_right = POINT {
+            x: rect.right,
+            y: rect.bottom,
+        };
 
-    ClientToScreen(hwnd, &mut upper_left as *mut _ as _);
-    ClientToScreen(hwnd, &mut lower_right as *mut _ as _);
+        ClientToScreen(hwnd, &mut upper_left as *mut _ as _);
+        ClientToScreen(hwnd, &mut lower_right as *mut _ as _);
 
-    SetRect(
-        &mut rect as *mut _ as _,
-        upper_left.x,
-        upper_left.y,
-        lower_right.x,
-        lower_right.y,
-    );
-    ClipCursor(&mut rect as *mut _ as _);
+        SetRect(
+            &mut rect as *mut _ as _,
+            upper_left.x,
+            upper_left.y,
+            lower_right.x,
+            lower_right.y,
+        );
+        ClipCursor(&mut rect as *mut _ as _);
+    }
 }
 
 unsafe fn key_mods() -> KeyMods {
-    let mut mods = KeyMods::default();
+    unsafe {
+        let mut mods = KeyMods::default();
 
-    if GetKeyState(VK_SHIFT) as u32 & (1u32 << 31) != 0 {
-        mods.shift = true;
-    }
-    if GetKeyState(VK_CONTROL) as u32 & (1u32 << 31) != 0 {
-        mods.ctrl = true;
-    }
-    if GetKeyState(VK_MENU) as u32 & (1u32 << 31) != 0 {
-        mods.alt = true;
-    }
-    if (GetKeyState(VK_LWIN) | GetKeyState(VK_RWIN)) as u32 & (1u32 << 31) != 0 {
-        mods.logo = true;
-    }
+        if GetKeyState(VK_SHIFT) as u32 & (1u32 << 31) != 0 {
+            mods.shift = true;
+        }
+        if GetKeyState(VK_CONTROL) as u32 & (1u32 << 31) != 0 {
+            mods.ctrl = true;
+        }
+        if GetKeyState(VK_MENU) as u32 & (1u32 << 31) != 0 {
+            mods.alt = true;
+        }
+        if (GetKeyState(VK_LWIN) | GetKeyState(VK_RWIN)) as u32 & (1u32 << 31) != 0 {
+            mods.logo = true;
+        }
 
-    mods
+        mods
+    }
 }
 
 unsafe extern "system" fn win32_wndproc(
@@ -377,517 +384,537 @@ unsafe extern "system" fn win32_wndproc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
-    let display_ptr: isize;
+    unsafe {
+        let display_ptr: isize;
 
-    #[cfg(target_pointer_width = "64")]
-    {
-        display_ptr = GetWindowLongPtrA(hwnd, GWLP_USERDATA)
-    }
-
-    #[cfg(target_pointer_width = "32")]
-    {
-        display_ptr = GetWindowLong(hwnd, GWLP_USERDATA)
-    }
-
-    if display_ptr == 0 {
-        return DefWindowProcW(hwnd, umsg, wparam, lparam);
-    }
-    let payload = &mut *(display_ptr as *mut WindowsDisplay);
-    let event_handler = payload.event_handler.as_mut().unwrap();
-
-    match umsg {
-        WM_CLOSE => {
-            let mut d = crate::native_display().lock().unwrap();
-            // only give user a chance to intervene when sapp_quit() wasn't already called
-            if !d.quit_ordered {
-                // if window should be closed and event handling is enabled, give user code
-                // a change to intervene via sapp_cancel_quit()
-                d.quit_requested = true;
-                drop(d);
-                // the prevent event may require access to native_display
-                event_handler.quit_requested_event();
-                // Re-acquire native_display
-                d = crate::native_display().lock().unwrap();
-                // if user code hasn't intervened, quit the app
-                if d.quit_requested {
-                    d.quit_ordered = true;
-                }
-            }
-            if d.quit_ordered {
-                PostQuitMessage(0);
-            }
-            return 0;
+        #[cfg(target_pointer_width = "64")]
+        {
+            display_ptr = GetWindowLongPtrA(hwnd, GWLP_USERDATA)
         }
-        WM_SYSCOMMAND => {
-            match wparam & 0xFFF0 {
-                SC_SCREENSAVE | SC_MONITORPOWER => {
-                    if payload.fullscreen {
-                        // disable screen saver and blanking in fullscreen mode
-                        return 0;
+
+        #[cfg(target_pointer_width = "32")]
+        {
+            display_ptr = GetWindowLong(hwnd, GWLP_USERDATA)
+        }
+
+        if display_ptr == 0 {
+            return DefWindowProcW(hwnd, umsg, wparam, lparam);
+        }
+        let payload = &mut *(display_ptr as *mut WindowsDisplay);
+        let event_handler = payload.event_handler.as_mut().unwrap();
+
+        match umsg {
+            WM_CLOSE => {
+                let mut d = crate::native_display().lock().unwrap();
+                // only give user a chance to intervene when sapp_quit() wasn't already called
+                if !d.quit_ordered {
+                    // if window should be closed and event handling is enabled, give user code
+                    // a change to intervene via sapp_cancel_quit()
+                    d.quit_requested = true;
+                    drop(d);
+                    // the prevent event may require access to native_display
+                    event_handler.quit_requested_event();
+                    // Re-acquire native_display
+                    d = crate::native_display().lock().unwrap();
+                    // if user code hasn't intervened, quit the app
+                    if d.quit_requested {
+                        d.quit_ordered = true;
                     }
                 }
-                SC_KEYMENU => {
-                    // user trying to access menu via ALT
-                    return 0;
+                if d.quit_ordered {
+                    PostQuitMessage(0);
                 }
-                _ => {}
+                return 0;
             }
-        }
-        WM_ERASEBKGND => {
-            return 1;
-        }
-        WM_SIZE => {
-            if payload.cursor_grabbed {
+            WM_SYSCOMMAND => {
+                match wparam & 0xFFF0 {
+                    SC_SCREENSAVE | SC_MONITORPOWER => {
+                        if payload.fullscreen {
+                            // disable screen saver and blanking in fullscreen mode
+                            return 0;
+                        }
+                    }
+                    SC_KEYMENU => {
+                        // user trying to access menu via ALT
+                        return 0;
+                    }
+                    _ => {}
+                }
+            }
+            WM_ERASEBKGND => {
+                return 1;
+            }
+            WM_SIZE => {
+                if payload.cursor_grabbed {
+                    update_clip_rect(hwnd);
+                }
+
+                let iconified = wparam == SIZE_MINIMIZED;
+                if iconified != payload.iconified {
+                    payload.iconified = iconified;
+                    if iconified {
+                        event_handler.window_minimized_event();
+                    } else {
+                        event_handler.window_restored_event();
+                    }
+                }
+            }
+            WM_SETCURSOR => {
+                if payload.user_cursor && LOWORD(lparam as _) == HTCLIENT as _ {
+                    SetCursor(payload.cursor);
+
+                    return 1;
+                }
+            }
+            WM_LBUTTONDOWN => {
+                let mouse_x = payload.mouse_x;
+                let mouse_y = payload.mouse_y;
+                event_handler.mouse_button_down_event(MouseButton::Left, mouse_x, mouse_y);
+            }
+            WM_RBUTTONDOWN => {
+                let mouse_x = payload.mouse_x;
+                let mouse_y = payload.mouse_y;
+
+                event_handler.mouse_button_down_event(MouseButton::Right, mouse_x, mouse_y);
+            }
+            WM_MBUTTONDOWN => {
+                let mouse_x = payload.mouse_x;
+                let mouse_y = payload.mouse_y;
+
+                event_handler.mouse_button_down_event(MouseButton::Middle, mouse_x, mouse_y);
+            }
+            WM_LBUTTONUP => {
+                let mouse_x = payload.mouse_x;
+                let mouse_y = payload.mouse_y;
+
+                event_handler.mouse_button_up_event(MouseButton::Left, mouse_x, mouse_y);
+            }
+            WM_RBUTTONUP => {
+                let mouse_x = payload.mouse_x;
+                let mouse_y = payload.mouse_y;
+
+                event_handler.mouse_button_up_event(MouseButton::Right, mouse_x, mouse_y);
+            }
+            WM_MBUTTONUP => {
+                let mouse_x = payload.mouse_x;
+                let mouse_y = payload.mouse_y;
+
+                event_handler.mouse_button_up_event(MouseButton::Middle, mouse_x, mouse_y);
+            }
+
+            WM_MOUSEMOVE => {
+                payload.mouse_x = GET_X_LPARAM(lparam) as f32 * payload.mouse_scale;
+                payload.mouse_y = GET_Y_LPARAM(lparam) as f32 * payload.mouse_scale;
+                // mouse enter was not handled by miniquad anyway
+                // if !_sapp.win32_mouse_tracked {
+                //     _sapp.win32_mouse_tracked = true;
+
+                //     let mut tme: TRACKMOUSEEVENT = std::mem::zeroed();
+
+                //     tme.cbSize = std::mem::size_of_val(&tme) as _;
+                //     tme.dwFlags = TME_LEAVE;
+                //     tme.hwndTrack = wnd;
+                //     TrackMouseEvent(&mut tme as *mut _);
+                //     _sapp_win32_mouse_event(
+                //         sapp_event_type_SAPP_EVENTTYPE_MOUSE_ENTER,
+                //         sapp_mousebutton_SAPP_MOUSEBUTTON_INVALID,
+                //     );
+                // }
+
+                let mouse_x = payload.mouse_x;
+                let mouse_y = payload.mouse_y;
+
+                event_handler.mouse_motion_event(mouse_x, mouse_y);
+            }
+
+            WM_MOVE if payload.cursor_grabbed => {
                 update_clip_rect(hwnd);
             }
 
-            let iconified = wparam == SIZE_MINIMIZED;
-            if iconified != payload.iconified {
-                payload.iconified = iconified;
-                if iconified {
-                    event_handler.window_minimized_event();
-                } else {
-                    event_handler.window_restored_event();
+            WM_INPUT => {
+                let mut data: RAWINPUT = std::mem::zeroed();
+                let mut size = std::mem::size_of::<RAWINPUT>();
+                let get_succeed = GetRawInputData(
+                    lparam as _,
+                    RID_INPUT,
+                    &mut data as *mut _ as _,
+                    &mut size as *mut _ as _,
+                    std::mem::size_of::<RAWINPUTHEADER>() as _,
+                );
+                if get_succeed as i32 == -1 {
+                    panic!("failed to retrieve raw input data");
                 }
-            }
-        }
-        WM_SETCURSOR => {
-            if payload.user_cursor && LOWORD(lparam as _) == HTCLIENT as _ {
-                SetCursor(payload.cursor);
 
-                return 1;
-            }
-        }
-        WM_LBUTTONDOWN => {
-            let mouse_x = payload.mouse_x;
-            let mouse_y = payload.mouse_y;
-            event_handler.mouse_button_down_event(MouseButton::Left, mouse_x, mouse_y);
-        }
-        WM_RBUTTONDOWN => {
-            let mouse_x = payload.mouse_x;
-            let mouse_y = payload.mouse_y;
+                let mouse_scale = payload.mouse_scale;
+                let mut dx = data.data.mouse().lLastX as f32 * mouse_scale;
+                let mut dy = data.data.mouse().lLastY as f32 * mouse_scale;
 
-            event_handler.mouse_button_down_event(MouseButton::Right, mouse_x, mouse_y);
-        }
-        WM_MBUTTONDOWN => {
-            let mouse_x = payload.mouse_x;
-            let mouse_y = payload.mouse_y;
+                // convert from normalised absolute coordinates
+                if (data.data.mouse().usFlags & MOUSE_MOVE_ABSOLUTE) == MOUSE_MOVE_ABSOLUTE {
+                    let (width, height) = {
+                        let d = crate::native_display().lock().unwrap();
+                        (d.screen_width as f32, d.screen_height as f32)
+                    };
 
-            event_handler.mouse_button_down_event(MouseButton::Middle, mouse_x, mouse_y);
-        }
-        WM_LBUTTONUP => {
-            let mouse_x = payload.mouse_x;
-            let mouse_y = payload.mouse_y;
-
-            event_handler.mouse_button_up_event(MouseButton::Left, mouse_x, mouse_y);
-        }
-        WM_RBUTTONUP => {
-            let mouse_x = payload.mouse_x;
-            let mouse_y = payload.mouse_y;
-
-            event_handler.mouse_button_up_event(MouseButton::Right, mouse_x, mouse_y);
-        }
-        WM_MBUTTONUP => {
-            let mouse_x = payload.mouse_x;
-            let mouse_y = payload.mouse_y;
-
-            event_handler.mouse_button_up_event(MouseButton::Middle, mouse_x, mouse_y);
-        }
-
-        WM_MOUSEMOVE => {
-            payload.mouse_x = GET_X_LPARAM(lparam) as f32 * payload.mouse_scale;
-            payload.mouse_y = GET_Y_LPARAM(lparam) as f32 * payload.mouse_scale;
-            // mouse enter was not handled by miniquad anyway
-            // if !_sapp.win32_mouse_tracked {
-            //     _sapp.win32_mouse_tracked = true;
-
-            //     let mut tme: TRACKMOUSEEVENT = std::mem::zeroed();
-
-            //     tme.cbSize = std::mem::size_of_val(&tme) as _;
-            //     tme.dwFlags = TME_LEAVE;
-            //     tme.hwndTrack = wnd;
-            //     TrackMouseEvent(&mut tme as *mut _);
-            //     _sapp_win32_mouse_event(
-            //         sapp_event_type_SAPP_EVENTTYPE_MOUSE_ENTER,
-            //         sapp_mousebutton_SAPP_MOUSEBUTTON_INVALID,
-            //     );
-            // }
-
-            let mouse_x = payload.mouse_x;
-            let mouse_y = payload.mouse_y;
-
-            event_handler.mouse_motion_event(mouse_x, mouse_y);
-        }
-
-        WM_MOVE if payload.cursor_grabbed => {
-            update_clip_rect(hwnd);
-        }
-
-        WM_INPUT => {
-            let mut data: RAWINPUT = std::mem::zeroed();
-            let mut size = std::mem::size_of::<RAWINPUT>();
-            let get_succeed = GetRawInputData(
-                lparam as _,
-                RID_INPUT,
-                &mut data as *mut _ as _,
-                &mut size as *mut _ as _,
-                std::mem::size_of::<RAWINPUTHEADER>() as _,
-            );
-            if get_succeed as i32 == -1 {
-                panic!("failed to retrieve raw input data");
-            }
-
-            let mouse_scale = payload.mouse_scale;
-            let mut dx = data.data.mouse().lLastX as f32 * mouse_scale;
-            let mut dy = data.data.mouse().lLastY as f32 * mouse_scale;
-
-            // convert from normalised absolute coordinates
-            if (data.data.mouse().usFlags & MOUSE_MOVE_ABSOLUTE) == MOUSE_MOVE_ABSOLUTE {
-                let (width, height) = {
-                    let d = crate::native_display().lock().unwrap();
-                    (d.screen_width as f32, d.screen_height as f32)
-                };
-
-                dx = dx / 65535.0 * width;
-                dy = dy / 65535.0 * height;
-            }
-
-            event_handler.raw_mouse_motion(dx, dy);
-        }
-
-        WM_MOUSELEAVE => {
-            // mouse leave was not handled by miniquad anyway
-            // _sapp.win32_mouse_tracked = false;
-            // _sapp_win32_mouse_event(
-            //     sapp_event_type_SAPP_EVENTTYPE_MOUSE_LEAVE,
-            //     sapp_mousebutton_SAPP_MOUSEBUTTON_INVALID,
-            // );
-        }
-        WM_MOUSEWHEEL => {
-            event_handler.mouse_wheel_event(0.0, (HIWORD(wparam as _) as i16) as f32);
-        }
-
-        WM_MOUSEHWHEEL => {
-            event_handler.mouse_wheel_event((HIWORD(wparam as _) as i16) as f32, 0.0);
-        }
-        WM_CHAR => {
-            let chr = wparam as u32;
-            let repeat = !!(lparam & 0x40000000) != 0;
-            let mods = key_mods();
-            if chr > 0 {
-                if let Some(chr) = char::from_u32(chr) {
-                    event_handler.char_event(chr, mods, repeat);
+                    dx = dx / 65535.0 * width;
+                    dy = dy / 65535.0 * height;
                 }
+
+                event_handler.raw_mouse_motion(dx, dy);
             }
-            return 0;
-        }
-        // IME message handling:
-        // We manually extract the result string from WM_IME_COMPOSITION
-        // instead of relying on WM_IME_CHAR to avoid duplicate characters.
-        WM_IME_CHAR => {
-            // Already handled in WM_IME_COMPOSITION; ignore to prevent duplicates
-            return 0;
-        }
-        WM_IME_COMPOSITION => {
-            let flags = lparam as u32;
-            
-            // Extract and dispatch the result string manually to avoid duplicates
-            if (flags & GCS_RESULTSTR) != 0 {
-                let himc = ImmGetContext(hwnd);
-                if !himc.is_null() {
-                    let len = ImmGetCompositionStringW(himc, GCS_RESULTSTR, std::ptr::null_mut(), 0);
-                    if len > 0 {
-                        let mut buffer: Vec<u16> = vec![0; (len as usize / 2) + 1];
-                        let actual_len = ImmGetCompositionStringW(
-                            himc, 
-                            GCS_RESULTSTR, 
-                            buffer.as_mut_ptr() as *mut _, 
-                            len as u32
-                        );
-                        if actual_len > 0 {
-                            let char_count = actual_len as usize / 2;
-                            let mods = key_mods();
-                            // Send chars in order
-                            for i in 0..char_count {
-                                let chr = buffer[i];
-                                if let Some(c) = char::from_u32(chr as u32) {
-                                    event_handler.char_event(c, mods, false);
+
+            WM_MOUSELEAVE => {
+                // mouse leave was not handled by miniquad anyway
+                // _sapp.win32_mouse_tracked = false;
+                // _sapp_win32_mouse_event(
+                //     sapp_event_type_SAPP_EVENTTYPE_MOUSE_LEAVE,
+                //     sapp_mousebutton_SAPP_MOUSEBUTTON_INVALID,
+                // );
+            }
+            WM_MOUSEWHEEL => {
+                event_handler.mouse_wheel_event(0.0, (HIWORD(wparam as _) as i16) as f32);
+            }
+
+            WM_MOUSEHWHEEL => {
+                event_handler.mouse_wheel_event((HIWORD(wparam as _) as i16) as f32, 0.0);
+            }
+            WM_CHAR => {
+                let chr = wparam as u32;
+                let repeat = !!(lparam & 0x40000000) != 0;
+                let mods = key_mods();
+                if chr > 0 {
+                    if let Some(chr) = char::from_u32(chr) {
+                        event_handler.char_event(chr, mods, repeat);
+                    }
+                }
+                return 0;
+            }
+            // IME message handling:
+            // We manually extract the result string from WM_IME_COMPOSITION
+            // instead of relying on WM_IME_CHAR to avoid duplicate characters.
+            WM_IME_CHAR => {
+                // Already handled in WM_IME_COMPOSITION; ignore to prevent duplicates
+                return 0;
+            }
+            WM_IME_COMPOSITION => {
+                let flags = lparam as u32;
+
+                // Extract and dispatch the result string manually to avoid duplicates
+                if (flags & GCS_RESULTSTR) != 0 {
+                    let himc = ImmGetContext(hwnd);
+                    if !himc.is_null() {
+                        let len =
+                            ImmGetCompositionStringW(himc, GCS_RESULTSTR, std::ptr::null_mut(), 0);
+                        if len > 0 {
+                            let mut buffer: Vec<u16> = vec![0; (len as usize / 2) + 1];
+                            let actual_len = ImmGetCompositionStringW(
+                                himc,
+                                GCS_RESULTSTR,
+                                buffer.as_mut_ptr() as *mut _,
+                                len as u32,
+                            );
+                            if actual_len > 0 {
+                                let char_count = actual_len as usize / 2;
+                                let mods = key_mods();
+                                // Send chars in order
+                                for &chr in buffer.iter().take(char_count) {
+                                    if let Some(c) = char::from_u32(chr as u32) {
+                                        event_handler.char_event(c, mods, false);
+                                    }
                                 }
                             }
                         }
+                        ImmReleaseContext(hwnd, himc);
                     }
-                    ImmReleaseContext(hwnd, himc);
+                    return 0;
                 }
-                return 0;
+
+                // For non-result messages (composition state updates), pass to DefWindowProc
+                return DefWindowProcW(hwnd, umsg, wparam, lparam);
             }
-            
-            // For non-result messages (composition state updates), pass to DefWindowProc
-            return DefWindowProcW(hwnd, umsg, wparam, lparam);
-        }
-        WM_IME_SETCONTEXT => {
-            let user_disabled = IME_USER_DISABLED.load(std::sync::atomic::Ordering::Relaxed);
-            
-            // If user explicitly disabled IME, don't auto-restore
-            if user_disabled {
-                return 0;
+            WM_IME_SETCONTEXT => {
+                let user_disabled = IME_USER_DISABLED.load(std::sync::atomic::Ordering::Relaxed);
+
+                // If user explicitly disabled IME, don't auto-restore
+                if user_disabled {
+                    return 0;
+                }
+
+                // Must pass to DefWindowProc to enable IME properly
+                return DefWindowProcW(hwnd, umsg, wparam, lparam);
             }
-            
-            // Must pass to DefWindowProc to enable IME properly
-            return DefWindowProcW(hwnd, umsg, wparam, lparam);
-        }
-        WM_IME_STARTCOMPOSITION => {
-            // Offset for candidate window below composition position
-            const CANDIDATE_WINDOW_Y_OFFSET: i32 = 20;
-            
-            // Set candidate window position when IME starts composition
-            let himc = ImmGetContext(hwnd);
-            if !himc.is_null() {
-                let mut pt: POINT = std::mem::zeroed();
-                GetCaretPos(&mut pt);
-                
-                let comp_form = COMPOSITIONFORM {
-                    dwStyle: CFS_POINT,
-                    ptCurrentPos: pt,
-                    rcArea: RECT { left: 0, top: 0, right: 0, bottom: 0 },
-                };
-                ImmSetCompositionWindow(himc, &comp_form);
-                
-                // Set candidate window position (most IMEs only use index 0)
-                let cand_form = CANDIDATEFORM {
-                    dwIndex: 0,
-                    dwStyle: CFS_CANDIDATEPOS,
-                    ptCurrentPos: POINT { x: pt.x, y: pt.y + CANDIDATE_WINDOW_Y_OFFSET },
-                    rcArea: RECT { left: 0, top: 0, right: 0, bottom: 0 },
-                };
-                ImmSetCandidateWindow(himc, &cand_form);
-                
-                ImmReleaseContext(hwnd, himc);
-            }
-            return DefWindowProcW(hwnd, umsg, wparam, lparam);
-        }
-        WM_IME_ENDCOMPOSITION => {
-            return DefWindowProcW(hwnd, umsg, wparam, lparam);
-        }
-        WM_IME_NOTIFY => {
-            const IMN_SETOPENSTATUS: WPARAM = 0x0008;
-            
-            // Re-enable IME if it was unexpectedly closed (unless user disabled it)
-            if wparam == IMN_SETOPENSTATUS {
+            WM_IME_STARTCOMPOSITION => {
+                // Offset for candidate window below composition position
+                const CANDIDATE_WINDOW_Y_OFFSET: i32 = 20;
+
+                // Set candidate window position when IME starts composition
                 let himc = ImmGetContext(hwnd);
                 if !himc.is_null() {
-                    let open_status = ImmGetOpenStatus(himc);
-                    let user_disabled = IME_USER_DISABLED.load(std::sync::atomic::Ordering::Relaxed);
-                    if open_status == 0 && !user_disabled {
-                        ImmSetOpenStatus(himc, 1);
-                    }
-                    ImmReleaseContext(hwnd, himc);
-                }
-            }
-            
-            return DefWindowProcW(hwnd, umsg, wparam, lparam);
-        }
-        WM_INPUTLANGCHANGEREQUEST | WM_INPUTLANGCHANGE => {
-            // Pass input language change messages to default handler
-            return DefWindowProcW(hwnd, umsg, wparam, lparam);
-        }
-        WM_KEYDOWN | WM_SYSKEYDOWN => {
-            let keycode_raw = HIWORD(lparam as _) as u32 & 0x1FF;
-            let keycode = keycodes::translate_keycode(keycode_raw);
-            let mods = key_mods();
-            let repeat = !!(lparam & 0x40000000) != 0;
-            event_handler.key_down_event(keycode, mods, repeat);
-            // Pass to DefWindowProc for IME to work properly
-            return DefWindowProcW(hwnd, umsg, wparam, lparam);
-        }
-        WM_KEYUP | WM_SYSKEYUP => {
-            let keycode = HIWORD(lparam as _) as u32 & 0x1FF;
-            let keycode = keycodes::translate_keycode(keycode);
-            let mods = key_mods();
-            event_handler.key_up_event(keycode, mods);
-            // IMPORTANT: Pass to DefWindowProc for IME to work properly
-            return DefWindowProcW(hwnd, umsg, wparam, lparam);
-        }
-        WM_ENTERSIZEMOVE | WM_ENTERMENULOOP => {
-            SetTimer(
-                hwnd,
-                &mut payload.modal_resizing_timer as *mut _ as usize,
-                10,
-                None,
-            );
-        }
-        WM_TIMER => {
-            if wparam == &mut payload.modal_resizing_timer as *mut _ as usize {
-                if payload.update_dimensions(hwnd) {
-                    let d = crate::native_display().lock().unwrap();
-                    let width = d.screen_width as f32;
-                    let height = d.screen_height as f32;
-                    drop(d);
-                    payload
-                        .event_handler
-                        .as_mut()
-                        .unwrap()
-                        .resize_event(width, height);
-                }
+                    let mut pt: POINT = std::mem::zeroed();
+                    GetCaretPos(&mut pt);
 
-                payload.event_handler.as_mut().unwrap().update();
-                payload.event_handler.as_mut().unwrap().draw();
-
-                SwapBuffers(payload.dc);
-            }
-        }
-        WM_EXITSIZEMOVE | WM_EXITMENULOOP => {
-            KillTimer(hwnd, &mut payload.modal_resizing_timer as *mut _ as usize);
-        }
-        WM_DROPFILES => {
-            let hdrop = wparam as HDROP;
-            let mut path = core::mem::MaybeUninit::<[u16; MAX_PATH]>::uninit();
-            let num_drops = DragQueryFileW(hdrop, u32::MAX, std::ptr::null_mut(), 0);
-
-            let mut d = crate::native_display().lock().unwrap();
-            d.dropped_files = Default::default();
-            for i in 0..num_drops {
-                let path_ptr = path.as_mut_ptr() as *mut u16;
-                let path_len = DragQueryFileW(hdrop, i, path_ptr, MAX_PATH as u32) as usize;
-                if path_len > 0 {
-                    // SAFETY: `DragQueryFileW` initializes `path_ptr` up to `path_len`
-                    // elements before use, and we only access the initialized portion.
-                    let path = unsafe {
-                        let path = path.assume_init();
-                        PathBuf::from(OsString::from_wide(&path[0..path_len]))
+                    let comp_form = COMPOSITIONFORM {
+                        dwStyle: CFS_POINT,
+                        ptCurrentPos: pt,
+                        rcArea: RECT {
+                            left: 0,
+                            top: 0,
+                            right: 0,
+                            bottom: 0,
+                        },
                     };
-                    d.dropped_files.bytes.push(std::fs::read(&path).unwrap());
-                    d.dropped_files.paths.push(path);
-                }
-            }
-        }
-        WM_ACTIVATE => {
-            if LOWORD(wparam as _) == WA_ACTIVE || LOWORD(wparam as _) == WA_CLICKACTIVE {
-                event_handler.window_restored_event();
-            } else {
-                event_handler.window_minimized_event();
-            }
-        }
-        WM_SETFOCUS => {
-            let user_disabled = IME_USER_DISABLED.load(std::sync::atomic::Ordering::Relaxed);
-            
-            // Ensure IME context is available when window gains focus
-            if !user_disabled {
-                let himc = ImmGetContext(hwnd);
-                
-                if himc.is_null() {
-                    // Create new IME context if none exists
-                    let new_himc = ImmCreateContext();
-                    if !new_himc.is_null() {
-                        let prev_himc = ImmAssociateContext(hwnd, new_himc);
-                        if ImmSetOpenStatus(new_himc, 1) == 0 && prev_himc.is_null() {
-                            // If SetOpenStatus fails and no previous context, release the new one
-                            ImmReleaseContext(hwnd, new_himc);
-                        }
-                    }
-                } else {
-                    // Ensure IME is open
-                    let open_status = ImmGetOpenStatus(himc);
-                    if open_status == 0 {
-                        ImmSetOpenStatus(himc, 1);
-                    }
+                    ImmSetCompositionWindow(himc, &comp_form);
+
+                    // Set candidate window position (most IMEs only use index 0)
+                    let cand_form = CANDIDATEFORM {
+                        dwIndex: 0,
+                        dwStyle: CFS_CANDIDATEPOS,
+                        ptCurrentPos: POINT {
+                            x: pt.x,
+                            y: pt.y + CANDIDATE_WINDOW_Y_OFFSET,
+                        },
+                        rcArea: RECT {
+                            left: 0,
+                            top: 0,
+                            right: 0,
+                            bottom: 0,
+                        },
+                    };
+                    ImmSetCandidateWindow(himc, &cand_form);
+
                     ImmReleaseContext(hwnd, himc);
                 }
+                return DefWindowProcW(hwnd, umsg, wparam, lparam);
             }
-            
-            return DefWindowProcW(hwnd, umsg, wparam, lparam);
-        }
-        WM_KILLFOCUS => {
-            return DefWindowProcW(hwnd, umsg, wparam, lparam);
-        }
-        _ => {}
-    }
+            WM_IME_ENDCOMPOSITION => {
+                return DefWindowProcW(hwnd, umsg, wparam, lparam);
+            }
+            WM_IME_NOTIFY => {
+                const IMN_SETOPENSTATUS: WPARAM = 0x0008;
 
-    DefWindowProcW(hwnd, umsg, wparam, lparam)
+                // Re-enable IME if it was unexpectedly closed (unless user disabled it)
+                if wparam == IMN_SETOPENSTATUS {
+                    let himc = ImmGetContext(hwnd);
+                    if !himc.is_null() {
+                        let open_status = ImmGetOpenStatus(himc);
+                        let user_disabled =
+                            IME_USER_DISABLED.load(std::sync::atomic::Ordering::Relaxed);
+                        if open_status == 0 && !user_disabled {
+                            ImmSetOpenStatus(himc, 1);
+                        }
+                        ImmReleaseContext(hwnd, himc);
+                    }
+                }
+
+                return DefWindowProcW(hwnd, umsg, wparam, lparam);
+            }
+            WM_INPUTLANGCHANGEREQUEST | WM_INPUTLANGCHANGE => {
+                // Pass input language change messages to default handler
+                return DefWindowProcW(hwnd, umsg, wparam, lparam);
+            }
+            WM_KEYDOWN | WM_SYSKEYDOWN => {
+                let keycode_raw = HIWORD(lparam as _) as u32 & 0x1FF;
+                let keycode = keycodes::translate_keycode(keycode_raw);
+                let mods = key_mods();
+                let repeat = !!(lparam & 0x40000000) != 0;
+                event_handler.key_down_event(keycode, mods, repeat);
+                // Pass to DefWindowProc for IME to work properly
+                return DefWindowProcW(hwnd, umsg, wparam, lparam);
+            }
+            WM_KEYUP | WM_SYSKEYUP => {
+                let keycode = HIWORD(lparam as _) as u32 & 0x1FF;
+                let keycode = keycodes::translate_keycode(keycode);
+                let mods = key_mods();
+                event_handler.key_up_event(keycode, mods);
+                // IMPORTANT: Pass to DefWindowProc for IME to work properly
+                return DefWindowProcW(hwnd, umsg, wparam, lparam);
+            }
+            WM_ENTERSIZEMOVE | WM_ENTERMENULOOP => {
+                SetTimer(
+                    hwnd,
+                    &mut payload.modal_resizing_timer as *mut _ as usize,
+                    10,
+                    None,
+                );
+            }
+            WM_TIMER => {
+                if wparam == &mut payload.modal_resizing_timer as *mut _ as usize {
+                    if payload.update_dimensions(hwnd) {
+                        let d = crate::native_display().lock().unwrap();
+                        let width = d.screen_width as f32;
+                        let height = d.screen_height as f32;
+                        drop(d);
+                        payload
+                            .event_handler
+                            .as_mut()
+                            .unwrap()
+                            .resize_event(width, height);
+                    }
+
+                    payload.event_handler.as_mut().unwrap().update();
+                    payload.event_handler.as_mut().unwrap().draw();
+
+                    SwapBuffers(payload.dc);
+                }
+            }
+            WM_EXITSIZEMOVE | WM_EXITMENULOOP => {
+                KillTimer(hwnd, &mut payload.modal_resizing_timer as *mut _ as usize);
+            }
+            WM_DROPFILES => {
+                let hdrop = wparam as HDROP;
+                let mut path = core::mem::MaybeUninit::<[u16; MAX_PATH]>::uninit();
+                let num_drops = DragQueryFileW(hdrop, u32::MAX, std::ptr::null_mut(), 0);
+
+                let mut d = crate::native_display().lock().unwrap();
+                d.dropped_files = Default::default();
+                for i in 0..num_drops {
+                    let path_ptr = path.as_mut_ptr() as *mut u16;
+                    let path_len = DragQueryFileW(hdrop, i, path_ptr, MAX_PATH as u32) as usize;
+                    if path_len > 0 {
+                        // SAFETY: `DragQueryFileW` initializes `path_ptr` up to `path_len`
+                        // elements before use, and we only access the initialized portion.
+                        let path = {
+                            let path = path.assume_init();
+                            PathBuf::from(OsString::from_wide(&path[0..path_len]))
+                        };
+                        d.dropped_files.bytes.push(std::fs::read(&path).unwrap());
+                        d.dropped_files.paths.push(path);
+                    }
+                }
+            }
+            WM_ACTIVATE => {
+                if LOWORD(wparam as _) == WA_ACTIVE || LOWORD(wparam as _) == WA_CLICKACTIVE {
+                    event_handler.window_restored_event();
+                } else {
+                    event_handler.window_minimized_event();
+                }
+            }
+            WM_SETFOCUS => {
+                let user_disabled = IME_USER_DISABLED.load(std::sync::atomic::Ordering::Relaxed);
+
+                // Ensure IME context is available when window gains focus
+                if !user_disabled {
+                    let himc = ImmGetContext(hwnd);
+
+                    if himc.is_null() {
+                        // Create new IME context if none exists
+                        let new_himc = ImmCreateContext();
+                        if !new_himc.is_null() {
+                            let prev_himc = ImmAssociateContext(hwnd, new_himc);
+                            if ImmSetOpenStatus(new_himc, 1) == 0 && prev_himc.is_null() {
+                                // If SetOpenStatus fails and no previous context, release the new one
+                                ImmReleaseContext(hwnd, new_himc);
+                            }
+                        }
+                    } else {
+                        // Ensure IME is open
+                        let open_status = ImmGetOpenStatus(himc);
+                        if open_status == 0 {
+                            ImmSetOpenStatus(himc, 1);
+                        }
+                        ImmReleaseContext(hwnd, himc);
+                    }
+                }
+
+                return DefWindowProcW(hwnd, umsg, wparam, lparam);
+            }
+            WM_KILLFOCUS => {
+                return DefWindowProcW(hwnd, umsg, wparam, lparam);
+            }
+            _ => {}
+        }
+
+        DefWindowProcW(hwnd, umsg, wparam, lparam)
+    }
 }
 
 unsafe fn create_win_icon_from_image(width: u32, height: u32, colors: &[u8]) -> Option<HICON> {
-    let mut bi: BITMAPV5HEADER = std::mem::zeroed();
+    unsafe {
+        let mut bi: BITMAPV5HEADER = std::mem::zeroed();
 
-    bi.bV5Size = std::mem::size_of::<BITMAPV5HEADER>() as _;
-    bi.bV5Width = width as i32;
-    bi.bV5Height = -(height as i32); // NOTE the '-' here to indicate that origin is top-left
-    bi.bV5Planes = 1;
-    bi.bV5BitCount = 32;
-    bi.bV5Compression = BI_BITFIELDS;
-    bi.bV5RedMask = 0x00FF0000;
-    bi.bV5GreenMask = 0x0000FF00;
-    bi.bV5BlueMask = 0x000000FF;
-    bi.bV5AlphaMask = 0xFF000000;
+        bi.bV5Size = std::mem::size_of::<BITMAPV5HEADER>() as _;
+        bi.bV5Width = width as i32;
+        bi.bV5Height = -(height as i32); // NOTE the '-' here to indicate that origin is top-left
+        bi.bV5Planes = 1;
+        bi.bV5BitCount = 32;
+        bi.bV5Compression = BI_BITFIELDS;
+        bi.bV5RedMask = 0x00FF0000;
+        bi.bV5GreenMask = 0x0000FF00;
+        bi.bV5BlueMask = 0x000000FF;
+        bi.bV5AlphaMask = 0xFF000000;
 
-    let mut target = std::ptr::null_mut();
-    // const uint8_t* source = (const uint8_t*)desc->pixels.ptr;
+        let mut target = std::ptr::null_mut();
+        // const uint8_t* source = (const uint8_t*)desc->pixels.ptr;
 
-    let dc = GetDC(std::ptr::null_mut());
-    let color = CreateDIBSection(
-        dc,
-        &bi as *const _ as *const BITMAPINFO,
-        DIB_RGB_COLORS,
-        &mut target,
-        std::ptr::null_mut(),
-        0,
-    );
-    ReleaseDC(std::ptr::null_mut(), dc);
-    if color.is_null() {
-        return None;
-    }
-    assert!(!target.is_null());
+        let dc = GetDC(std::ptr::null_mut());
+        let color = CreateDIBSection(
+            dc,
+            &bi as *const _ as *const BITMAPINFO,
+            DIB_RGB_COLORS,
+            &mut target,
+            std::ptr::null_mut(),
+            0,
+        );
+        ReleaseDC(std::ptr::null_mut(), dc);
+        if color.is_null() {
+            return None;
+        }
+        assert!(!target.is_null());
 
-    let mask = CreateBitmap(width as _, height as _, 1, 1, std::ptr::null());
-    if mask.is_null() {
+        let mask = CreateBitmap(width as _, height as _, 1, 1, std::ptr::null());
+        if mask.is_null() {
+            DeleteObject(color as *mut _);
+            return None;
+        }
+
+        for i in 0..width as usize * height as usize {
+            *(target as *mut u8).offset(i as isize * 4 + 0) = colors[i * 4 + 2];
+            *(target as *mut u8).offset(i as isize * 4 + 1) = colors[i * 4 + 1];
+            *(target as *mut u8).offset(i as isize * 4 + 2) = colors[i * 4 + 0];
+            *(target as *mut u8).offset(i as isize * 4 + 3) = colors[i * 4 + 3];
+        }
+
+        let mut icon_info: ICONINFO = std::mem::zeroed();
+        icon_info.fIcon = 1;
+        icon_info.xHotspot = 0;
+        icon_info.yHotspot = 0;
+        icon_info.hbmMask = mask;
+        icon_info.hbmColor = color;
+        let icon_handle = CreateIconIndirect(&mut icon_info);
         DeleteObject(color as *mut _);
-        return None;
+        DeleteObject(mask as *mut _);
+
+        Some(icon_handle)
     }
-
-    for i in 0..width as usize * height as usize {
-        *(target as *mut u8).offset(i as isize * 4 + 0) = colors[i * 4 + 2];
-        *(target as *mut u8).offset(i as isize * 4 + 1) = colors[i * 4 + 1];
-        *(target as *mut u8).offset(i as isize * 4 + 2) = colors[i * 4 + 0];
-        *(target as *mut u8).offset(i as isize * 4 + 3) = colors[i * 4 + 3];
-    }
-
-    let mut icon_info: ICONINFO = std::mem::zeroed();
-    icon_info.fIcon = 1;
-    icon_info.xHotspot = 0;
-    icon_info.yHotspot = 0;
-    icon_info.hbmMask = mask;
-    icon_info.hbmColor = color;
-    let icon_handle = CreateIconIndirect(&mut icon_info);
-    DeleteObject(color as *mut _);
-    DeleteObject(mask as *mut _);
-
-    Some(icon_handle)
 }
 
 unsafe fn set_icon(wnd: HWND, icon: &Icon) {
-    let big_icon_w = GetSystemMetrics(SM_CXICON);
-    let big_icon_h = GetSystemMetrics(SM_CYICON);
-    let small_icon_w = GetSystemMetrics(SM_CXSMICON);
-    let small_icon_h = GetSystemMetrics(SM_CYSMICON);
+    unsafe {
+        let big_icon_w = GetSystemMetrics(SM_CXICON);
+        let big_icon_h = GetSystemMetrics(SM_CYICON);
+        let small_icon_w = GetSystemMetrics(SM_CXSMICON);
+        let small_icon_h = GetSystemMetrics(SM_CYSMICON);
 
-    let big_icon = if big_icon_w * big_icon_h >= 64 * 64 {
-        (&icon.big[..], 64, 64)
-    } else {
-        (&icon.medium[..], 32, 32)
-    };
+        let big_icon = if big_icon_w * big_icon_h >= 64 * 64 {
+            (&icon.big[..], 64, 64)
+        } else {
+            (&icon.medium[..], 32, 32)
+        };
 
-    let small_icon = if small_icon_w * small_icon_h <= 16 * 16 {
-        (&icon.small[..], 16, 16)
-    } else {
-        (&icon.medium[..], 32, 32)
-    };
+        let small_icon = if small_icon_w * small_icon_h <= 16 * 16 {
+            (&icon.small[..], 16, 16)
+        } else {
+            (&icon.medium[..], 32, 32)
+        };
 
-    let big_icon = create_win_icon_from_image(big_icon.1, big_icon.2, big_icon.0);
-    let small_icon = create_win_icon_from_image(small_icon.1, small_icon.2, small_icon.0);
-    if let Some(icon) = big_icon {
-        SendMessageW(wnd, WM_SETICON, ICON_BIG as _, icon as LPARAM);
-    }
-    if let Some(icon) = small_icon {
-        SendMessageW(wnd, WM_SETICON, ICON_SMALL as _, icon as LPARAM);
+        let big_icon = create_win_icon_from_image(big_icon.1, big_icon.2, big_icon.0);
+        let small_icon = create_win_icon_from_image(small_icon.1, small_icon.2, small_icon.0);
+        if let Some(icon) = big_icon {
+            SendMessageW(wnd, WM_SETICON, ICON_BIG as _, icon as LPARAM);
+        }
+        if let Some(icon) = small_icon {
+            SendMessageW(wnd, WM_SETICON, ICON_SMALL as _, icon as LPARAM);
+        }
     }
 }
 
@@ -898,222 +925,232 @@ unsafe fn create_window(
     width: i32,
     height: i32,
 ) -> (HWND, HDC) {
-    let mut wndclassw: WNDCLASSW = std::mem::zeroed();
+    unsafe {
+        let mut wndclassw: WNDCLASSW = std::mem::zeroed();
 
-    // CS_OWNDC is required for OpenGL
-    wndclassw.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
-    wndclassw.lpfnWndProc = Some(win32_wndproc);
-    wndclassw.hInstance = GetModuleHandleW(NULL as _);
-    wndclassw.hCursor = LoadCursorW(NULL as _, IDC_ARROW);
-    wndclassw.hIcon = LoadIconW(NULL as _, IDI_WINLOGO);
-    wndclassw.hbrBackground = GetStockObject(BLACK_BRUSH as i32) as HBRUSH;
-    let class_name = "MINIQUADAPP\0".encode_utf16().collect::<Vec<u16>>();
-    wndclassw.lpszClassName = class_name.as_ptr() as _;
-    wndclassw.cbWndExtra = std::mem::size_of::<*mut std::ffi::c_void>() as i32;
-    RegisterClassW(&wndclassw);
+        // CS_OWNDC is required for OpenGL
+        wndclassw.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
+        wndclassw.lpfnWndProc = Some(win32_wndproc);
+        wndclassw.hInstance = GetModuleHandleW(NULL as _);
+        wndclassw.hCursor = LoadCursorW(NULL as _, IDC_ARROW);
+        wndclassw.hIcon = LoadIconW(NULL as _, IDI_WINLOGO);
+        wndclassw.hbrBackground = GetStockObject(BLACK_BRUSH as i32) as HBRUSH;
+        let class_name = "MINIQUADAPP\0".encode_utf16().collect::<Vec<u16>>();
+        wndclassw.lpszClassName = class_name.as_ptr() as _;
+        wndclassw.cbWndExtra = std::mem::size_of::<*mut std::ffi::c_void>() as i32;
+        RegisterClassW(&wndclassw);
 
-    let win_style: DWORD;
-    let win_ex_style: DWORD = WS_EX_APPWINDOW | WS_EX_WINDOWEDGE;
-    let mut rect = RECT {
-        left: 0,
-        top: 0,
-        right: 0,
-        bottom: 0,
-    };
-
-    if fullscreen {
-        win_style = WS_POPUP | WS_SYSMENU | WS_VISIBLE;
-        rect.right = GetSystemMetrics(SM_CXSCREEN);
-        rect.bottom = GetSystemMetrics(SM_CYSCREEN);
-    } else {
-        win_style = if resizable {
-            WS_CLIPSIBLINGS
-                | WS_CLIPCHILDREN
-                | WS_CAPTION
-                | WS_SYSMENU
-                | WS_MINIMIZEBOX
-                | WS_MAXIMIZEBOX
-                | WS_SIZEBOX
-        } else {
-            WS_CLIPSIBLINGS | WS_CLIPCHILDREN | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX
+        let win_style: DWORD;
+        let win_ex_style: DWORD = WS_EX_APPWINDOW | WS_EX_WINDOWEDGE;
+        let mut rect = RECT {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
         };
 
-        rect.right = width;
-        rect.bottom = height;
+        if fullscreen {
+            win_style = WS_POPUP | WS_SYSMENU | WS_VISIBLE;
+            rect.right = GetSystemMetrics(SM_CXSCREEN);
+            rect.bottom = GetSystemMetrics(SM_CYSCREEN);
+        } else {
+            win_style = if resizable {
+                WS_CLIPSIBLINGS
+                    | WS_CLIPCHILDREN
+                    | WS_CAPTION
+                    | WS_SYSMENU
+                    | WS_MINIMIZEBOX
+                    | WS_MAXIMIZEBOX
+                    | WS_SIZEBOX
+            } else {
+                WS_CLIPSIBLINGS | WS_CLIPCHILDREN | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX
+            };
+
+            rect.right = width;
+            rect.bottom = height;
+        }
+
+        AdjustWindowRectEx(&rect as *const _ as _, win_style, false as _, win_ex_style);
+        let win_width = rect.right - rect.left;
+        let win_height = rect.bottom - rect.top;
+        let class_name = "MINIQUADAPP\0".encode_utf16().collect::<Vec<u16>>();
+        let mut window_name = window_title.encode_utf16().collect::<Vec<u16>>();
+        window_name.push(0);
+        let hwnd = CreateWindowExW(
+            win_ex_style,                // dwExStyle
+            class_name.as_ptr(),         // lpClassName
+            window_name.as_ptr(),        // lpWindowName
+            win_style,                   // dwStyle
+            CW_USEDEFAULT,               // X
+            CW_USEDEFAULT,               // Y
+            win_width,                   // nWidth
+            win_height,                  // nHeight
+            NULL as _,                   // hWndParent
+            NULL as _,                   // hMenu
+            GetModuleHandleW(NULL as _), // hInstance
+            NULL as _,                   // lparam
+        );
+        assert!(!hwnd.is_null());
+
+        // NOTE: Do not call ShowWindow here!
+        // Must show window AFTER SetPixelFormat and wglCreateContext
+        // Otherwise IME will not work correctly.
+        let dc = GetDC(hwnd);
+        assert!(!dc.is_null());
+
+        DragAcceptFiles(hwnd, TRUE);
+
+        (hwnd, dc)
     }
-
-    AdjustWindowRectEx(&rect as *const _ as _, win_style, false as _, win_ex_style);
-    let win_width = rect.right - rect.left;
-    let win_height = rect.bottom - rect.top;
-    let class_name = "MINIQUADAPP\0".encode_utf16().collect::<Vec<u16>>();
-    let mut window_name = window_title.encode_utf16().collect::<Vec<u16>>();
-    window_name.push(0);
-    let hwnd = CreateWindowExW(
-        win_ex_style,                // dwExStyle
-        class_name.as_ptr(),         // lpClassName
-        window_name.as_ptr(),        // lpWindowName
-        win_style,                   // dwStyle
-        CW_USEDEFAULT,               // X
-        CW_USEDEFAULT,               // Y
-        win_width,                   // nWidth
-        win_height,                  // nHeight
-        NULL as _,                   // hWndParent
-        NULL as _,                   // hMenu
-        GetModuleHandleW(NULL as _), // hInstance
-        NULL as _,                   // lparam
-    );
-    assert!(!hwnd.is_null());
-
-    // NOTE: Do not call ShowWindow here!
-    // Must show window AFTER SetPixelFormat and wglCreateContext
-    // Otherwise IME will not work correctly.
-    let dc = GetDC(hwnd);
-    assert!(!dc.is_null());
-
-    DragAcceptFiles(hwnd, TRUE);
-
-    (hwnd, dc)
 }
 
 unsafe fn create_msg_window() -> (HWND, HDC) {
-    // Use a separate window class to avoid interfering with main window's IME
-    let class_name = "MINIQUADMSGWND\0".encode_utf16().collect::<Vec<u16>>();
-    
-    let mut wndclassw: WNDCLASSW = std::mem::zeroed();
-    wndclassw.style = 0;
-    wndclassw.lpfnWndProc = Some(DefWindowProcW);
-    wndclassw.hInstance = GetModuleHandleW(NULL as _);
-    wndclassw.lpszClassName = class_name.as_ptr() as _;
-    RegisterClassW(&wndclassw);
-    
-    let window_name = "miniquad message window\0"
-        .encode_utf16()
-        .collect::<Vec<u16>>();
-    let msg_hwnd = CreateWindowExW(
-        WS_EX_OVERLAPPEDWINDOW,
-        class_name.as_ptr() as _,
-        window_name.as_ptr() as _,
-        WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
-        0,
-        0,
-        1,
-        1,
-        NULL as _,
-        NULL as _,
-        GetModuleHandleW(NULL as _),
-        NULL,
-    );
-    assert!(
-        !msg_hwnd.is_null(),
-        "Win32: failed to create helper window!"
-    );
-    
-    // Disable IME for message window to avoid interfering with main window
-    ImmAssociateContextEx(msg_hwnd, std::ptr::null_mut(), IACE_CHILDREN);
-    
-    ShowWindow(msg_hwnd, SW_HIDE);
-    let mut msg = std::mem::zeroed();
-    while PeekMessageW(&mut msg as _, msg_hwnd, 0, 0, PM_REMOVE) != 0 {
-        TranslateMessage(&msg);
-        DispatchMessageW(&msg);
-    }
-    let msg_dc = GetDC(msg_hwnd);
-    assert!(
-        !msg_dc.is_null(),
-        "Win32: failed to obtain helper window DC!"
-    );
+    unsafe {
+        // Use a separate window class to avoid interfering with main window's IME
+        let class_name = "MINIQUADMSGWND\0".encode_utf16().collect::<Vec<u16>>();
 
-    (msg_hwnd, msg_dc)
+        let mut wndclassw: WNDCLASSW = std::mem::zeroed();
+        wndclassw.style = 0;
+        wndclassw.lpfnWndProc = Some(DefWindowProcW);
+        wndclassw.hInstance = GetModuleHandleW(NULL as _);
+        wndclassw.lpszClassName = class_name.as_ptr() as _;
+        RegisterClassW(&wndclassw);
+
+        let window_name = "miniquad message window\0"
+            .encode_utf16()
+            .collect::<Vec<u16>>();
+        let msg_hwnd = CreateWindowExW(
+            WS_EX_OVERLAPPEDWINDOW,
+            class_name.as_ptr() as _,
+            window_name.as_ptr() as _,
+            WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
+            0,
+            0,
+            1,
+            1,
+            NULL as _,
+            NULL as _,
+            GetModuleHandleW(NULL as _),
+            NULL,
+        );
+        assert!(
+            !msg_hwnd.is_null(),
+            "Win32: failed to create helper window!"
+        );
+
+        // Disable IME for message window to avoid interfering with main window
+        ImmAssociateContextEx(msg_hwnd, std::ptr::null_mut(), IACE_CHILDREN);
+
+        ShowWindow(msg_hwnd, SW_HIDE);
+        let mut msg = std::mem::zeroed();
+        while PeekMessageW(&mut msg as _, msg_hwnd, 0, 0, PM_REMOVE) != 0 {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+        let msg_dc = GetDC(msg_hwnd);
+        assert!(
+            !msg_dc.is_null(),
+            "Win32: failed to obtain helper window DC!"
+        );
+
+        (msg_hwnd, msg_dc)
+    }
 }
 
 impl WindowsDisplay {
     unsafe fn get_proc_address(&mut self, proc: &str) -> Option<unsafe extern "C" fn() -> ()> {
-        let proc = std::ffi::CString::new(proc).unwrap();
-        let mut proc_ptr = (self.libopengl32.wglGetProcAddress)(proc.as_ptr());
-        if proc_ptr.is_null() {
-            proc_ptr = GetProcAddress(self.libopengl32.module.0, proc.as_ptr());
+        unsafe {
+            let proc = std::ffi::CString::new(proc).unwrap();
+            let mut proc_ptr = (self.libopengl32.wglGetProcAddress)(proc.as_ptr());
+            if proc_ptr.is_null() {
+                proc_ptr = GetProcAddress(self.libopengl32.module.0, proc.as_ptr());
+            }
+            if proc_ptr.is_null() {
+                eprintln!("Load GL func {:?} failed.", proc);
+                return None;
+            }
+            Some(std::mem::transmute::<
+                *mut winapi::shared::minwindef::__some_function,
+                unsafe extern "C" fn(),
+            >(proc_ptr))
         }
-        if proc_ptr.is_null() {
-            eprintln!("Load GL func {:?} failed.", proc);
-            return None;
-        }
-        Some(std::mem::transmute::<
-            *mut winapi::shared::minwindef::__some_function,
-            unsafe extern "C" fn(),
-        >(proc_ptr))
     }
 
     /// updates current window and framebuffer size from the window's client rect,
     /// and window position from the window's rect.
     /// returns true if size or position has changed
     unsafe fn update_dimensions(&mut self, hwnd: HWND) -> bool {
-        let mut d = crate::native_display().lock().unwrap();
-        let mut rect: RECT = std::mem::zeroed();
+        unsafe {
+            let mut d = crate::native_display().lock().unwrap();
+            let mut rect: RECT = std::mem::zeroed();
 
-        // Get the outer rectangle of the window in screen coordinates
-        if GetWindowRect(hwnd, &mut rect as *mut _ as _) != 0 {
-            // Get the client area rectangle in client coordinates
-            let mut client_rect: RECT = std::mem::zeroed();
-            if GetClientRect(hwnd, &mut client_rect as *mut _ as _) != 0 {
-                // Calculate window width and height based on the client area
-                let window_width =
-                    ((client_rect.right - client_rect.left) as f32 / self.window_scale) as i32;
-                let window_height =
-                    ((client_rect.bottom - client_rect.top) as f32 / self.window_scale) as i32;
+            // Get the outer rectangle of the window in screen coordinates
+            if GetWindowRect(hwnd, &mut rect as *mut _ as _) != 0 {
+                // Get the client area rectangle in client coordinates
+                let mut client_rect: RECT = std::mem::zeroed();
+                if GetClientRect(hwnd, &mut client_rect as *mut _ as _) != 0 {
+                    // Calculate window width and height based on the client area
+                    let window_width =
+                        ((client_rect.right - client_rect.left) as f32 / self.window_scale) as i32;
+                    let window_height =
+                        ((client_rect.bottom - client_rect.top) as f32 / self.window_scale) as i32;
 
-                // Prevent a framebuffer size of 0 when the window is minimized
-                let fb_width = ((window_width as f32 * self.content_scale) as i32).max(1);
-                let fb_height = ((window_height as f32 * self.content_scale) as i32).max(1);
+                    // Prevent a framebuffer size of 0 when the window is minimized
+                    let fb_width = ((window_width as f32 * self.content_scale) as i32).max(1);
+                    let fb_height = ((window_height as f32 * self.content_scale) as i32).max(1);
 
-                // Check for size changes
-                if fb_width != d.screen_width || fb_height != d.screen_height {
-                    d.screen_width = fb_width;
-                    d.screen_height = fb_height;
-                    return true;
-                }
+                    // Check for size changes
+                    if fb_width != d.screen_width || fb_height != d.screen_height {
+                        d.screen_width = fb_width;
+                        d.screen_height = fb_height;
+                        return true;
+                    }
 
-                // Check for position changes
-                if (rect.left as u32, rect.top as u32) != d.screen_position {
-                    d.screen_position = (rect.left as u32, rect.top as u32);
-                    return true;
+                    // Check for position changes
+                    if (rect.left as u32, rect.top as u32) != d.screen_position {
+                        d.screen_position = (rect.left as u32, rect.top as u32);
+                        return true;
+                    }
+                } else {
+                    // Handle error or default case
+                    d.screen_width = 1;
+                    d.screen_height = 1;
                 }
             } else {
                 // Handle error or default case
-                d.screen_width = 1;
-                d.screen_height = 1;
+                d.screen_position = (0, 0);
             }
-        } else {
-            // Handle error or default case
-            d.screen_position = (0, 0);
-        }
 
-        false
+            false
+        }
     }
 
     unsafe fn init_dpi(&mut self, high_dpi: bool) {
-        self.dpi_aware = high_dpi;
-        // get dpi scale factor for main monitor
-        if self.dpi_aware {
-            let pt = POINT { x: 1, y: 1 };
-            let hm = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
-            let mut dpix: UINT = 0;
-            let mut dpiy: UINT = 0;
-            let hr = GetDpiForMonitor(
-                hm,
-                MDT_EFFECTIVE_DPI,
-                &mut dpix as *mut _ as _,
-                &mut dpiy as *mut _ as _,
-            );
-            assert_eq!(hr, 0);
-            //  clamp window scale to an integer factor
-            self.window_scale = dpix as f32 / 96.0;
-        }
-        if high_dpi {
-            self.content_scale = self.window_scale;
-            self.mouse_scale = 1.0;
-        } else {
-            self.content_scale = 1.0;
-            self.mouse_scale = 1.0 / self.window_scale;
+        unsafe {
+            self.dpi_aware = high_dpi;
+            // get dpi scale factor for main monitor
+            if self.dpi_aware {
+                let pt = POINT { x: 1, y: 1 };
+                let hm = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+                let mut dpix: UINT = 0;
+                let mut dpiy: UINT = 0;
+                let hr = GetDpiForMonitor(
+                    hm,
+                    MDT_EFFECTIVE_DPI,
+                    &mut dpix as *mut _ as _,
+                    &mut dpiy as *mut _ as _,
+                );
+                assert_eq!(hr, 0);
+                //  clamp window scale to an integer factor
+                self.window_scale = dpix as f32 / 96.0;
+            }
+            if high_dpi {
+                self.content_scale = self.window_scale;
+                self.mouse_scale = 1.0;
+            } else {
+                self.content_scale = 1.0;
+                self.mouse_scale = 1.0 / self.window_scale;
+            }
         }
     }
 

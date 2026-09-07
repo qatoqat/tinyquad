@@ -1,7 +1,7 @@
 #![allow(non_upper_case_globals, non_snake_case)]
 
 use super::{
-    libx11::{self, Display, Window, _XPrivDisplay},
+    libx11::{self, _XPrivDisplay, Display, Window},
     xi_input,
 };
 
@@ -68,47 +68,49 @@ impl LibXi {
         libx11: &mut libx11::LibX11,
         display: *mut Display,
     ) {
-        let mut ev = 0;
-        let mut err = 0;
-        let mut xi_opcode = 0;
+        unsafe {
+            let mut ev = 0;
+            let mut err = 0;
+            let mut xi_opcode = 0;
 
-        if (libx11.XQueryExtension)(
-            display,
-            b"XInputExtension\x00" as *const u8 as *const libc::c_char,
-            &mut xi_opcode,
-            &mut ev,
-            &mut err,
-        ) == 0
-        {
-            return;
+            if (libx11.XQueryExtension)(
+                display,
+                b"XInputExtension\x00" as *const u8 as *const libc::c_char,
+                &mut xi_opcode,
+                &mut ev,
+                &mut err,
+            ) == 0
+            {
+                return;
+            }
+
+            // check the version of XInput
+            let mut major = 2;
+            let mut minor = 3;
+            if (self.XIQueryVersion)(display, &mut major, &mut minor) != 0 {
+                return;
+            }
+
+            // select events to listen
+            let mut mask = XI_RawMotionMask;
+            let mut masks = XIEventMask {
+                deviceid: XIAllDevices,
+                mask_len: ::std::mem::size_of::<libc::c_int>() as _,
+                mask: &mut mask as *mut _ as *mut _,
+            };
+
+            (self.XISelectEvents)(
+                display,
+                // this weird pointers is macro expansion of DefaultRootWindow(display)
+                (*(*(display as _XPrivDisplay))
+                    .screens
+                    .offset((*(display as _XPrivDisplay)).default_screen as isize))
+                .root,
+                &mut masks,
+                1 as libc::c_int,
+            );
+            self.xi_extension_opcode = Some(xi_opcode);
         }
-
-        // check the version of XInput
-        let mut major = 2;
-        let mut minor = 3;
-        if (self.XIQueryVersion)(display, &mut major, &mut minor) != 0 {
-            return;
-        }
-
-        // select events to listen
-        let mut mask = XI_RawMotionMask;
-        let mut masks = XIEventMask {
-            deviceid: XIAllDevices,
-            mask_len: ::std::mem::size_of::<libc::c_int>() as _,
-            mask: &mut mask as *mut _ as *mut _,
-        };
-
-        (self.XISelectEvents)(
-            display,
-            // this weird pointers is macro expansion of DefaultRootWindow(display)
-            (*(*(display as _XPrivDisplay))
-                .screens
-                .offset((*(display as _XPrivDisplay)).default_screen as isize))
-            .root,
-            &mut masks,
-            1 as libc::c_int,
-        );
-        self.xi_extension_opcode = Some(xi_opcode);
     }
 
     /// Get mouse delta from XI_RawMotion's event XGenericEventCookie data
@@ -117,19 +119,21 @@ impl LibXi {
         xcookie: &mut libx11::XGenericEventCookie,
         display: *mut Display,
     ) -> (f64, f64) {
-        assert!(xcookie.evtype == xi_input::XI_RawMotion);
+        unsafe {
+            assert!(xcookie.evtype == xi_input::XI_RawMotion);
 
-        (self.XGetEventData)(display, xcookie);
+            (self.XGetEventData)(display, xcookie);
 
-        let raw_event = xcookie.data as *mut xi_input::XIRawEvent;
+            let raw_event = xcookie.data as *mut xi_input::XIRawEvent;
 
-        // Data returned from Xlib is not guaranteed to be aligned
-        let ptr = (*raw_event).raw_values as *const f64;
-        let dx = std::ptr::read_unaligned(ptr);
-        let dy = std::ptr::read_unaligned(ptr.add(1));
+            // Data returned from Xlib is not guaranteed to be aligned
+            let ptr = (*raw_event).raw_values as *const f64;
+            let dx = std::ptr::read_unaligned(ptr);
+            let dy = std::ptr::read_unaligned(ptr.add(1));
 
-        (self.XFreeEventData)(display, &mut (*xcookie) as *mut _);
+            (self.XFreeEventData)(display, &mut (*xcookie) as *mut _);
 
-        (dx, dy)
+            (dx, dy)
+        }
     }
 }

@@ -8,18 +8,18 @@ use {
         event::{EventHandler, KeyCode, KeyMods, TouchPhase},
         fs,
         native::{
+            NativeDisplayData,
             apple::{
                 apple_util::{self, *},
                 frameworks::{self, *},
             },
-            NativeDisplayData,
         },
         native_display,
     },
     std::{
         cell::RefCell,
         os::raw::c_void,
-        sync::{mpsc, Arc, Mutex},
+        sync::{Arc, Mutex, mpsc},
     },
 };
 
@@ -30,7 +30,7 @@ use {
 // `thread_local` storage is sound.
 thread_local! {
     static PENDING_SCENE_VIEW_AND_CTRL: RefCell<Option<(ObjcId, ObjcId)>> =
-        RefCell::new(None);
+        const { RefCell::new(None) };
 }
 
 struct MainThreadState {
@@ -86,6 +86,9 @@ impl IosDisplay {
     }
 }
 
+// The `&mut IosDisplay` comes from a display pointer stored in the view's ivar,
+// not from `this` itself, so `&Object` input is not actually aliased.
+#[allow(clippy::mut_from_ref)]
 fn get_window_payload(this: &Object) -> &mut IosDisplay {
     unsafe {
         let ptr: *mut c_void = *this.get_ivar("display_ptr");
@@ -298,31 +301,33 @@ pub fn define_glk_or_mtk_view(superclass: &Class) -> *const Class {
 }
 
 unsafe fn get_proc_address(name: *const u8) -> Option<unsafe extern "C" fn()> {
-    mod libc {
-        use std::ffi::{c_char, c_int, c_void};
+    unsafe {
+        mod libc {
+            use std::ffi::{c_char, c_int, c_void};
 
-        pub const RTLD_LAZY: c_int = 1;
-        extern "C" {
-            pub fn dlopen(filename: *const c_char, flag: c_int) -> *mut c_void;
-            pub fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+            pub const RTLD_LAZY: c_int = 1;
+            unsafe extern "C" {
+                pub fn dlopen(filename: *const c_char, flag: c_int) -> *mut c_void;
+                pub fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+            }
         }
-    }
-    static mut OPENGL: *mut std::ffi::c_void = std::ptr::null_mut();
+        static mut OPENGL: *mut std::ffi::c_void = std::ptr::null_mut();
 
-    if OPENGL.is_null() {
-        OPENGL = libc::dlopen(
-            b"/System/Library/Frameworks/OpenGLES.framework/OpenGLES\0".as_ptr() as _,
-            libc::RTLD_LAZY,
-        );
-    }
+        if OPENGL.is_null() {
+            OPENGL = libc::dlopen(
+                c"/System/Library/Frameworks/OpenGLES.framework/OpenGLES".as_ptr() as _,
+                libc::RTLD_LAZY,
+            );
+        }
 
-    assert!(!OPENGL.is_null());
+        assert!(!OPENGL.is_null());
 
-    let symbol = libc::dlsym(OPENGL, name as _);
-    if symbol.is_null() {
-        return None;
+        let symbol = libc::dlsym(OPENGL, name as _);
+        if symbol.is_null() {
+            return None;
+        }
+        Some(std::mem::transmute_copy(&symbol))
     }
-    Some(unsafe { std::mem::transmute_copy(&symbol) })
 }
 
 pub fn define_glk_or_mtk_view_dlg(superclass: &Class) -> *const Class {
@@ -356,8 +361,7 @@ pub fn define_glk_or_mtk_view_dlg(superclass: &Class) -> *const Class {
         // Measure the view, not the device screen — iOS-on-Mac
         // windowed mode has view < UIScreen.
         let view_bounds: NSRect = unsafe { msg_send![payload.view, bounds] };
-        let content_scale_factor: f64 =
-            unsafe { msg_send![payload.view, contentScaleFactor] };
+        let content_scale_factor: f64 = unsafe { msg_send![payload.view, contentScaleFactor] };
         let screen_width = (view_bounds.size.width * content_scale_factor) as i32;
         let screen_height = (view_bounds.size.height * content_scale_factor) as i32;
         let dpi_scale = content_scale_factor as f32;
@@ -405,8 +409,7 @@ pub fn define_glk_or_mtk_view_dlg(superclass: &Class) -> *const Class {
         let height = size.height as i32;
         let changed = {
             let mut display = native_display().lock().unwrap();
-            let changed =
-                display.screen_width != width || display.screen_height != height;
+            let changed = display.screen_width != width || display.screen_height != height;
             if changed {
                 display.screen_width = width;
                 display.screen_height = height;
@@ -504,36 +507,39 @@ unsafe fn create_opengl_view(screen_rect: NSRect, _sample_count: i32, high_dpi: 
 }
 
 unsafe fn create_metal_view(screen_rect: NSRect, sample_count: i32, _high_dpi: bool) -> View {
-    let mtk_view_obj: ObjcId = msg_send![define_glk_or_mtk_view(class!(MTKView)), alloc];
-    let mtk_view_obj: ObjcId = msg_send![mtk_view_obj, initWithFrame: screen_rect];
+    unsafe {
+        let mtk_view_obj: ObjcId = msg_send![define_glk_or_mtk_view(class!(MTKView)), alloc];
+        let mtk_view_obj: ObjcId = msg_send![mtk_view_obj, initWithFrame: screen_rect];
 
-    let mtk_view_dlg_obj: ObjcId = msg_send![define_glk_or_mtk_view_dlg(class!(NSObject)), alloc];
-    let mtk_view_dlg_obj: ObjcId = msg_send![mtk_view_dlg_obj, init];
+        let mtk_view_dlg_obj: ObjcId =
+            msg_send![define_glk_or_mtk_view_dlg(class!(NSObject)), alloc];
+        let mtk_view_dlg_obj: ObjcId = msg_send![mtk_view_dlg_obj, init];
 
-    let view_ctrl_obj: ObjcId = msg_send![class!(UIViewController), alloc];
-    let view_ctrl_obj: ObjcId = msg_send![view_ctrl_obj, init];
+        let view_ctrl_obj: ObjcId = msg_send![class!(UIViewController), alloc];
+        let view_ctrl_obj: ObjcId = msg_send![view_ctrl_obj, init];
 
-    msg_send_![view_ctrl_obj, setView: mtk_view_obj];
+        msg_send_![view_ctrl_obj, setView: mtk_view_obj];
 
-    // Continuous draw — `CADisplayLink` drives `drawInMTKView:` on
-    // the main thread at `preferredFramesPerSecond`.
-    msg_send_![mtk_view_obj, setEnableSetNeedsDisplay: NO];
-    msg_send_![mtk_view_obj, setPaused: NO];
-    msg_send_![mtk_view_obj, setPreferredFramesPerSecond:60];
-    msg_send_![mtk_view_obj, setDelegate: mtk_view_dlg_obj];
-    let device = MTLCreateSystemDefaultDevice();
-    msg_send_![mtk_view_obj, setDevice: device];
-    msg_send_![mtk_view_obj, setUserInteractionEnabled: YES];
-    if sample_count > 1 {
-        msg_send_![mtk_view_obj, setSampleCount: sample_count as u64];
-    }
+        // Continuous draw — `CADisplayLink` drives `drawInMTKView:` on
+        // the main thread at `preferredFramesPerSecond`.
+        msg_send_![mtk_view_obj, setEnableSetNeedsDisplay: NO];
+        msg_send_![mtk_view_obj, setPaused: NO];
+        msg_send_![mtk_view_obj, setPreferredFramesPerSecond:60];
+        msg_send_![mtk_view_obj, setDelegate: mtk_view_dlg_obj];
+        let device = MTLCreateSystemDefaultDevice();
+        msg_send_![mtk_view_obj, setDevice: device];
+        msg_send_![mtk_view_obj, setUserInteractionEnabled: YES];
+        if sample_count > 1 {
+            msg_send_![mtk_view_obj, setSampleCount: sample_count as u64];
+        }
 
-    View {
-        view: mtk_view_obj,
-        view_dlg: mtk_view_dlg_obj,
-        view_ctrl: view_ctrl_obj,
+        View {
+            view: mtk_view_obj,
+            view_dlg: mtk_view_dlg_obj,
+            view_ctrl: view_ctrl_obj,
 
-        _gles2: false,
+            _gles2: false,
+        }
     }
 }
 
@@ -631,6 +637,9 @@ pub fn define_app_delegate() -> *const Class {
                 ..NativeDisplayData::new(conf.window_width, conf.window_height, tx, clipboard)
             });
 
+            // `MainThreadState` holds ObjC object pointers, so this `Arc` can never be
+            // `Send`: it is shared between the event loop and the Metal render callbacks.
+            #[allow(clippy::arc_with_non_send_sync)]
             let state_original = Arc::new(Mutex::new(MainThreadState {
                 quit: false,
                 paused: true,
@@ -711,8 +720,7 @@ pub fn define_app_delegate() -> *const Class {
     extern "C" fn scene_will_connect(_: &Object, _: Sel, notification: ObjcId) {
         unsafe {
             let scene: ObjcId = msg_send![notification, object];
-            let is_window_scene: BOOL =
-                msg_send![scene, isKindOfClass: class!(UIWindowScene)];
+            let is_window_scene: BOOL = msg_send![scene, isKindOfClass: class!(UIWindowScene)];
             if is_window_scene == NO {
                 return;
             }
@@ -898,18 +906,20 @@ pub unsafe fn run<F>(conf: Conf, f: F)
 where
     F: 'static + FnOnce() -> Box<dyn EventHandler>,
 {
-    RUN_ARGS = Some((Box::new(f), conf));
+    unsafe {
+        RUN_ARGS = Some((Box::new(f), conf));
 
-    std::panic::set_hook(Box::new(|info| {
-        let nsstring = apple_util::str_to_nsstring(&format!("{:?}", info));
-        let _: () = frameworks::NSLog(nsstring);
-    }));
+        std::panic::set_hook(Box::new(|info| {
+            let nsstring = apple_util::str_to_nsstring(&format!("{:?}", info));
+            let _: () = frameworks::NSLog(nsstring);
+        }));
 
-    let argc = 1;
-    let mut argv = b"Miniquad\0" as *const u8 as *mut i8;
+        let argc = 1;
+        let mut argv = b"Miniquad\0" as *const u8 as *mut i8;
 
-    let class: ObjcId = msg_send!(define_app_delegate(), class);
-    let class_string = frameworks::NSStringFromClass(class as _);
+        let class: ObjcId = msg_send!(define_app_delegate(), class);
+        let class_string = frameworks::NSStringFromClass(class as _);
 
-    UIApplicationMain(argc, &mut argv, nil, class_string);
+        UIApplicationMain(argc, &mut argv, nil, class_string);
+    }
 }

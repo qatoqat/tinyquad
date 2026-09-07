@@ -60,7 +60,7 @@ fn load_file_android<F: Fn(Response)>(path: &str, on_loaded: F) {
 
         unsafe { native::android::load_asset(filename.as_ptr(), &mut data as _) };
 
-        if data.content.is_null() == false {
+        if !data.content.is_null() {
             let slice =
                 unsafe { std::slice::from_raw_parts(data.content, data.content_length as _) };
             let response = slice.iter().map(|c| *c as _).collect::<Vec<_>>();
@@ -87,7 +87,7 @@ mod wasm {
         static FILES: RefCell<HashMap<u32, Box<dyn Fn(Response)>>> = RefCell::new(HashMap::new());
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn file_loaded(file_id: u32) {
         use super::Error;
         use native::wasm::fs;

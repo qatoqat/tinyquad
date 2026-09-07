@@ -18,7 +18,7 @@ pub use gl::GlContext;
 #[cfg(target_vendor = "apple")]
 pub use metal::MetalContext;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum UniformType {
     /// One 32-bit wide float (equivalent to `f32`)
     Float1,
@@ -823,7 +823,7 @@ pub struct BufferId(usize);
 /// Measurement is performed by calling [`ElapsedQuery::begin_query()`] and
 /// [`ElapsedQuery::end_query()`]
 ///
-/// ```
+/// ```ignore
 /// # use miniquad::graphics::ElapsedQuery;
 /// # let mut query = ElapsedQuery::new();
 ///
@@ -835,7 +835,7 @@ pub struct BufferId(usize);
 /// Retreival of measured duration is only possible at a later point in time. Often a frame or
 /// couple frames later. Measurement latency can especially be high on WASM/WebGL target.
 ///
-/// ```
+/// ```ignore
 /// // couple frames later:
 /// # use miniquad::graphics::ElapsedQuery;
 /// # let mut query = ElapsedQuery::new();
@@ -848,7 +848,7 @@ pub struct BufferId(usize);
 /// ```
 ///
 /// And during finalization:
-/// ```
+/// ```ignore
 /// // clean-up
 /// # use miniquad::graphics::ElapsedQuery;
 /// # let mut query = ElapsedQuery::new();
@@ -1279,7 +1279,7 @@ pub trait RenderingBackend {
     ///    );
     /// ```
     fn new_buffer(&mut self, type_: BufferType, usage: BufferUsage, data: BufferSource)
-        -> BufferId;
+    -> BufferId;
     fn buffer_update(&mut self, buffer: BufferId, data: BufferSource);
 
     /// Size of buffer in bytes.

@@ -1,6 +1,6 @@
 use miniquad::*;
 
-use glam::{vec3, Mat4, Vec3};
+use glam::{Mat4, Vec3, vec3};
 
 const MAX_PARTICLES: usize = 512 * 1024;
 const NUM_PARTICLES_EMITTED_PER_FRAME: usize = 10;
@@ -35,7 +35,7 @@ impl Stage {
         let geometry_vertex_buffer = ctx.new_buffer(
             BufferType::VertexBuffer,
             BufferUsage::Immutable,
-            BufferSource::slice(&vertices),
+            BufferSource::slice(vertices),
         );
 
         #[rustfmt::skip]
@@ -46,7 +46,7 @@ impl Stage {
         let index_buffer = ctx.new_buffer(
             BufferType::IndexBuffer,
             BufferUsage::Immutable,
-            BufferSource::slice(&indices),
+            BufferSource::slice(indices),
         );
 
         // empty, dynamic instance data vertex buffer
@@ -58,7 +58,7 @@ impl Stage {
 
         let bindings = Bindings {
             vertex_buffers: vec![geometry_vertex_buffer, positions_vertex_buffer],
-            index_buffer: index_buffer,
+            index_buffer,
             images: vec![],
         };
 
@@ -147,8 +147,13 @@ impl EventHandler for Stage {
         // model-view-projection matrix
         let (width, height) = window::screen_size();
 
-        let proj = Mat4::perspective_rh_gl(60.0f32.to_radians(), width / height, 0.01, 50.0);
-        let view = Mat4::look_at_rh(
+        let proj = glam::camera::rh::proj::opengl::perspective(
+            60.0f32.to_radians(),
+            width / height,
+            0.01,
+            50.0,
+        );
+        let view = glam::camera::rh::view::look_at_mat4(
             vec3(0.0, 1.5, 12.0),
             vec3(0.0, 0.0, 0.0),
             vec3(0.0, 1.0, 0.0),

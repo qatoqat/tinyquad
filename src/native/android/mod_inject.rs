@@ -16,7 +16,7 @@
 // or ndk_sys as a crate dependency.. so we cant use anything from them.
 
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn quad_main() {
     let _ = super::main();
 }
