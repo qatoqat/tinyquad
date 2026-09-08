@@ -38,19 +38,22 @@ fn push_line(v: &mut Vec<Vertex>, a: [f32; 3], b: [f32; 3], color: [f32; 4]) {
     v.push(Vertex::new(b, color));
 }
 
-/// Flat-shaded cube faces (24 vertices), brightness hints at the light from
-/// above so the cube reads as a cube and not a hexagon.
+/// Faces are painted with their axis color; the positive side of each axis
+/// uses the full color and the negative side a dimmed version of it.
+const fn dim(color: [f32; 4]) -> [f32; 4] {
+    [color[0] * 0.45, color[1] * 0.45, color[2] * 0.45, color[3]]
+}
+
 fn cube_faces() -> Vec<Vertex> {
-    let shade = |g: f32| [g, g, g * 1.02, 1.0];
     let corner = |x: f32, y: f32, z: f32| [x * CUBE_HALF, y * CUBE_HALF, z * CUBE_HALF];
     let mut v = Vec::new();
-    for (corners, brightness) in CUBE_FACES {
+    for (corners, color) in CUBE_FACES {
         let pts: [[f32; 3]; 4] = corners.map(|p| corner(p[0], p[1], p[2]));
         // expand the quad into two triangles: draw() consumes consecutive
         // index triples, there is no quad primitive
         for &(a, b, c) in &[(0usize, 1usize, 2usize), (0, 2, 3)] {
             for p in [pts[a], pts[b], pts[c]] {
-                v.push(Vertex::new(p, shade(*brightness)));
+                v.push(Vertex::new(p, *color));
             }
         }
     }
@@ -59,12 +62,12 @@ fn cube_faces() -> Vec<Vertex> {
 
 const CUBE_HALF: f32 = 1.0;
 
-// (corners as unit-sign triplets, brightness) for each of the 6 faces.
-const CUBE_FACES: &[([[f32; 3]; 4], f32)] = &[
+// (corners as unit-sign triplets, face color) for each of the 6 faces.
+const CUBE_FACES: &[([[f32; 3]; 4], [f32; 4])] = &[
     // top (+Z)
     (
         [[-1., -1., 1.], [1., -1., 1.], [1., 1., 1.], [-1., 1., 1.]],
-        0.88,
+        AXIS_Z,
     ),
     // bottom (-Z)
     (
@@ -74,12 +77,12 @@ const CUBE_FACES: &[([[f32; 3]; 4], f32)] = &[
             [1., 1., -1.],
             [-1., 1., -1.],
         ],
-        0.30,
+        dim(AXIS_Z),
     ),
     // +X
     (
         [[1., -1., -1.], [1., -1., 1.], [1., 1., 1.], [1., 1., -1.]],
-        0.74,
+        AXIS_X,
     ),
     // -X
     (
@@ -89,12 +92,12 @@ const CUBE_FACES: &[([[f32; 3]; 4], f32)] = &[
             [-1., 1., 1.],
             [-1., 1., -1.],
         ],
-        0.45,
+        dim(AXIS_X),
     ),
     // +Y
     (
         [[1., 1., -1.], [1., 1., 1.], [-1., 1., 1.], [-1., 1., -1.]],
-        0.45,
+        AXIS_Y,
     ),
     // -Y
     (
@@ -104,7 +107,7 @@ const CUBE_FACES: &[([[f32; 3]; 4], f32)] = &[
             [-1., -1., 1.],
             [-1., -1., -1.],
         ],
-        0.62,
+        dim(AXIS_Y),
     ),
 ];
 
