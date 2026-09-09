@@ -11,7 +11,7 @@
 //! render to a lower-resolution framebuffer on HighDPI displays and the
 //! rendered content will be upscaled by the window system composer.
 //! In a HighDPI scenario, you still request the same window size during
-//! [`miniquad::start`][super::start], but the framebuffer sizes returned by
+//! [`tinyquad::start`][super::start], but the framebuffer sizes returned by
 //! [`screen_size`] will be scaled up according to the DPI scaling ratio.
 //! You can also get a DPI scaling factor with the function [`dpi_scale`].
 //!
@@ -74,7 +74,7 @@ pub enum LinuxBackend {
 
 /// On Apple platforms, choose the rendering API for creating contexts.
 ///
-/// Miniquad always links to Metal.framework (assuming it's present),
+/// Tinyquad always links to Metal.framework (assuming it's present),
 /// and links to OpenGL dynamically only if required.
 ///
 /// Defaults to AppleGfxApi::GL for legacy reasons.
@@ -89,7 +89,7 @@ pub enum AppleGfxApi {
 
 /// On the Web, specify which WebGL version to use.
 ///
-/// While miniquad itself only uses WebGL 1 features, a WebGL 2 context allows to:
+/// While tinyquad itself only uses WebGL 1 features, a WebGL 2 context allows to:
 /// - Use GLES3 shaders.
 /// - Do raw WebGL2 OpenGL calls.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -112,7 +112,7 @@ pub enum WaylandDecorations {
     #[default]
     ServerWithLibDecorFallback,
     /// If SSD is not supported, draw a light gray border.
-    ServerWithMiniquadFallback,
+    ServerWithTinyquadFallback,
     /// If SSD is not supported, no CSD will be drawn.
     ServerOnly,
 }
@@ -195,7 +195,7 @@ impl Default for Platform {
             swap_interval: None,
             framebuffer_alpha: false,
             wayland_decorations: WaylandDecorations::default(),
-            linux_wm_class: "miniquad-application",
+            linux_wm_class: "tinyquad-application",
             android_panic_hook: true,
         }
     }
@@ -255,7 +255,7 @@ pub struct Icon {
 }
 
 impl Icon {
-    pub fn miniquad_logo() -> Icon {
+    pub fn tinyquad_logo() -> Icon {
         Icon {
             small: crate::default_icon::SMALL,
             medium: crate::default_icon::MEDIUM,
@@ -272,35 +272,17 @@ impl std::fmt::Debug for Icon {
 }
 
 // reasonable defaults for PC and mobiles are slightly different
-#[cfg(not(target_os = "android"))]
 impl Default for Conf {
     fn default() -> Conf {
         Conf {
             window_title: "".to_owned(),
             window_width: 800,
             window_height: 600,
-            high_dpi: false,
-            fullscreen: false,
+            high_dpi: cfg!(target_os = "android"),
+            fullscreen: cfg!(target_os = "android"),
             sample_count: 1,
-            window_resizable: true,
-            icon: Some(Icon::miniquad_logo()),
-            platform: Default::default(),
-        }
-    }
-}
-
-#[cfg(target_os = "android")]
-impl Default for Conf {
-    fn default() -> Conf {
-        Conf {
-            window_title: "".to_owned(),
-            window_width: 800,
-            window_height: 600,
-            high_dpi: true,
-            fullscreen: true, //
-            sample_count: 1,
-            window_resizable: false, //
-            icon: Some(Icon::miniquad_logo()),
+            window_resizable: !cfg!(target_os = "android"),
+            icon: Some(Icon::tinyquad_logo()),
             platform: Default::default(),
         }
     }

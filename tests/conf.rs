@@ -1,8 +1,8 @@
 //! Tests for context-creation configuration defaults.
 //!
-//! These run without a window or GPU context: [`miniquad::conf`] types are plain data.
+//! These run without a window or GPU context: [`tinyquad::conf`] types are plain data.
 
-use miniquad::conf::*;
+use tinyquad::conf::*;
 
 #[test]
 fn conf_desktop_defaults() {
@@ -34,7 +34,7 @@ fn platform_defaults() {
         platform.wayland_decorations,
         WaylandDecorations::ServerWithLibDecorFallback
     );
-    assert_eq!(platform.linux_wm_class, "miniquad-application");
+    assert_eq!(platform.linux_wm_class, "tinyquad-application");
     assert!(platform.android_panic_hook);
 }
 
@@ -53,8 +53,8 @@ fn platform_enums_derive_default_from_first_documented_variant() {
 }
 
 #[test]
-fn miniquad_logo_icon_has_documented_dimensions() {
-    let icon = Icon::miniquad_logo();
+fn tinyquad_logo_icon_has_documented_dimensions() {
+    let icon = Icon::tinyquad_logo();
 
     assert_eq!(icon.small.len(), 16 * 16 * 4);
     assert_eq!(icon.medium.len(), 32 * 32 * 4);

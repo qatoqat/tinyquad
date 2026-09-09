@@ -152,6 +152,22 @@ pub struct KeyMods {
     pub logo: bool,
 }
 
+impl KeyMods {
+    /// Set/clear the modifier matching `keycode`. Used by the mobile
+    /// backends, which don't get a separate modifier bitmask with
+    /// every key event.
+    #[cfg(any(target_os = "android", target_os = "ios", target_os = "tvos"))]
+    pub(crate) fn update(&mut self, keycode: KeyCode, down: bool) {
+        match keycode {
+            KeyCode::LeftShift | KeyCode::RightShift => self.shift = down,
+            KeyCode::LeftControl | KeyCode::RightControl => self.ctrl = down,
+            KeyCode::LeftAlt | KeyCode::RightAlt => self.alt = down,
+            KeyCode::LeftSuper | KeyCode::RightSuper => self.logo = down,
+            _ => {}
+        }
+    }
+}
+
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum TouchPhase {
     Started,

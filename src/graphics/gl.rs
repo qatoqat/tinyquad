@@ -218,12 +218,12 @@ impl Texture {
         unsafe {
             glGenTextures(1, &mut texture as *mut _);
             ctx.cache.bind_texture(0, params.kind.into(), texture);
-            glPixelStorei(GL_UNPACK_ALIGNMENT, 1); // miniquad always uses row alignment of 1
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1); // tinyquad always uses row alignment of 1
 
             if cfg!(not(target_arch = "wasm32")) {
                 // if not WASM
                 if params.format == TextureFormat::Alpha {
-                    // if alpha miniquad texture, the value on non-WASM is stored in red channel
+                    // if alpha tinyquad texture, the value on non-WASM is stored in red channel
                     // swizzle red -> alpha
                     glTexParameteri(params.kind.into(), GL_TEXTURE_SWIZZLE_A, GL_RED as _);
                 } else {
@@ -380,12 +380,12 @@ impl Texture {
         let (_, format, pixel_type) = self.params.format.into();
 
         unsafe {
-            glPixelStorei(GL_UNPACK_ALIGNMENT, 1); // miniquad always uses row alignment of 1
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1); // tinyquad always uses row alignment of 1
 
             if cfg!(not(target_arch = "wasm32")) {
                 // if not WASM
                 if self.params.format == TextureFormat::Alpha {
-                    // if alpha miniquad texture, the value on non-WASM is stored in red channel
+                    // if alpha tinyquad texture, the value on non-WASM is stored in red channel
                     // swizzle red -> alpha
                     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_A, GL_RED as _);
                 } else {
@@ -845,10 +845,10 @@ fn gl_info() -> ContextInfo {
     // It was tested on really old windows machines, virtual machines etc. glsl100 always works!
     glsl_support.v100 = true;
 
-    // on wasm miniquad always creates webgl1 context, with the only glsl available being version 100
+    // on wasm tinyquad always creates webgl1 context, with the only glsl available being version 100
     #[cfg(target_arch = "wasm32")]
     {
-        // on web, miniquad always loads EXT_shader_texture_lod and OES_standard_derivatives
+        // on web, tinyquad always loads EXT_shader_texture_lod and OES_standard_derivatives
         glsl_support.v100_ext = true;
 
         let webgl2 = gl_version_string.contains("WebGL 2.0");
@@ -1205,10 +1205,12 @@ impl RenderingBackend for GlContext {
             ..
         } in attributes
         {
-            let layout = buffer_layout.get(*buffer_index).unwrap_or_else(|| panic!());
+            let layout = buffer_layout
+                .get(*buffer_index)
+                .expect("buffer_index out of range");
             let cache = buffer_cache
                 .get_mut(*buffer_index)
-                .unwrap_or_else(|| panic!());
+                .expect("buffer_index out of range");
 
             if layout.stride == 0 {
                 cache.stride += format.size_bytes();
@@ -1240,8 +1242,10 @@ impl RenderingBackend for GlContext {
         {
             let buffer_data = &mut buffer_cache
                 .get_mut(*buffer_index)
-                .unwrap_or_else(|| panic!());
-            let layout = buffer_layout.get(*buffer_index).unwrap_or_else(|| panic!());
+                .expect("buffer_index out of range");
+            let layout = buffer_layout
+                .get(*buffer_index)
+                .expect("buffer_index out of range");
 
             let cname = CString::new(*name).unwrap_or_else(|e| panic!("{}", e));
             let attr_loc = unsafe { glGetAttribLocation(program, cname.as_ptr() as *const _) };
@@ -1418,7 +1422,7 @@ impl RenderingBackend for GlContext {
 
     /// Delete GPU buffer, leaving handle unmodified.
     ///
-    /// More high-level code on top of miniquad probably is going to call this in Drop implementation of some
+    /// More high-level code on top of tinyquad probably is going to call this in Drop implementation of some
     /// more RAII buffer object.
     ///
     /// There is no protection against using deleted textures later. However its not an UB in OpenGl and thats why

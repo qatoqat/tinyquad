@@ -466,46 +466,29 @@ unsafe extern "system" fn win32_wndproc(
                     return 1;
                 }
             }
-            WM_LBUTTONDOWN => {
-                let mouse_x = payload.mouse_x;
-                let mouse_y = payload.mouse_y;
-                event_handler.mouse_button_down_event(MouseButton::Left, mouse_x, mouse_y);
+            WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN => {
+                let (mouse_x, mouse_y) = (payload.mouse_x, payload.mouse_y);
+                let button = match umsg {
+                    WM_LBUTTONDOWN => MouseButton::Left,
+                    WM_RBUTTONDOWN => MouseButton::Right,
+                    _ => MouseButton::Middle,
+                };
+                event_handler.mouse_button_down_event(button, mouse_x, mouse_y);
             }
-            WM_RBUTTONDOWN => {
-                let mouse_x = payload.mouse_x;
-                let mouse_y = payload.mouse_y;
-
-                event_handler.mouse_button_down_event(MouseButton::Right, mouse_x, mouse_y);
-            }
-            WM_MBUTTONDOWN => {
-                let mouse_x = payload.mouse_x;
-                let mouse_y = payload.mouse_y;
-
-                event_handler.mouse_button_down_event(MouseButton::Middle, mouse_x, mouse_y);
-            }
-            WM_LBUTTONUP => {
-                let mouse_x = payload.mouse_x;
-                let mouse_y = payload.mouse_y;
-
-                event_handler.mouse_button_up_event(MouseButton::Left, mouse_x, mouse_y);
-            }
-            WM_RBUTTONUP => {
-                let mouse_x = payload.mouse_x;
-                let mouse_y = payload.mouse_y;
-
-                event_handler.mouse_button_up_event(MouseButton::Right, mouse_x, mouse_y);
-            }
-            WM_MBUTTONUP => {
-                let mouse_x = payload.mouse_x;
-                let mouse_y = payload.mouse_y;
-
-                event_handler.mouse_button_up_event(MouseButton::Middle, mouse_x, mouse_y);
+            WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP => {
+                let (mouse_x, mouse_y) = (payload.mouse_x, payload.mouse_y);
+                let button = match umsg {
+                    WM_LBUTTONUP => MouseButton::Left,
+                    WM_RBUTTONUP => MouseButton::Right,
+                    _ => MouseButton::Middle,
+                };
+                event_handler.mouse_button_up_event(button, mouse_x, mouse_y);
             }
 
             WM_MOUSEMOVE => {
                 payload.mouse_x = GET_X_LPARAM(lparam) as f32 * payload.mouse_scale;
                 payload.mouse_y = GET_Y_LPARAM(lparam) as f32 * payload.mouse_scale;
-                // mouse enter was not handled by miniquad anyway
+                // mouse enter was not handled by tinyquad anyway
                 // if !_sapp.win32_mouse_tracked {
                 //     _sapp.win32_mouse_tracked = true;
 
@@ -564,7 +547,7 @@ unsafe extern "system" fn win32_wndproc(
             }
 
             WM_MOUSELEAVE => {
-                // mouse leave was not handled by miniquad anyway
+                // mouse leave was not handled by tinyquad anyway
                 // _sapp.win32_mouse_tracked = false;
                 // _sapp_win32_mouse_event(
                 //     sapp_event_type_SAPP_EVENTTYPE_MOUSE_LEAVE,
@@ -777,8 +760,10 @@ unsafe extern "system" fn win32_wndproc(
                             let path = path.assume_init();
                             PathBuf::from(OsString::from_wide(&path[0..path_len]))
                         };
-                        d.dropped_files.bytes.push(std::fs::read(&path).unwrap());
-                        d.dropped_files.paths.push(path);
+                        if let Ok(bytes) = std::fs::read(&path) {
+                            d.dropped_files.bytes.push(bytes);
+                            d.dropped_files.paths.push(path);
+                        }
                     }
                 }
             }
@@ -935,7 +920,7 @@ unsafe fn create_window(
         wndclassw.hCursor = LoadCursorW(NULL as _, IDC_ARROW);
         wndclassw.hIcon = LoadIconW(NULL as _, IDI_WINLOGO);
         wndclassw.hbrBackground = GetStockObject(BLACK_BRUSH as i32) as HBRUSH;
-        let class_name = "MINIQUADAPP\0".encode_utf16().collect::<Vec<u16>>();
+        let class_name = "TINYQUADAPP\0".encode_utf16().collect::<Vec<u16>>();
         wndclassw.lpszClassName = class_name.as_ptr() as _;
         wndclassw.cbWndExtra = std::mem::size_of::<*mut std::ffi::c_void>() as i32;
         RegisterClassW(&wndclassw);
@@ -973,7 +958,7 @@ unsafe fn create_window(
         AdjustWindowRectEx(&rect as *const _ as _, win_style, false as _, win_ex_style);
         let win_width = rect.right - rect.left;
         let win_height = rect.bottom - rect.top;
-        let class_name = "MINIQUADAPP\0".encode_utf16().collect::<Vec<u16>>();
+        let class_name = "TINYQUADAPP\0".encode_utf16().collect::<Vec<u16>>();
         let mut window_name = window_title.encode_utf16().collect::<Vec<u16>>();
         window_name.push(0);
         let hwnd = CreateWindowExW(
@@ -1007,7 +992,7 @@ unsafe fn create_window(
 unsafe fn create_msg_window() -> (HWND, HDC) {
     unsafe {
         // Use a separate window class to avoid interfering with main window's IME
-        let class_name = "MINIQUADMSGWND\0".encode_utf16().collect::<Vec<u16>>();
+        let class_name = "TINYQUADMSGWND\0".encode_utf16().collect::<Vec<u16>>();
 
         let mut wndclassw: WNDCLASSW = std::mem::zeroed();
         wndclassw.style = 0;
@@ -1016,7 +1001,7 @@ unsafe fn create_msg_window() -> (HWND, HDC) {
         wndclassw.lpszClassName = class_name.as_ptr() as _;
         RegisterClassW(&wndclassw);
 
-        let window_name = "miniquad message window\0"
+        let window_name = "tinyquad message window\0"
             .encode_utf16()
             .collect::<Vec<u16>>();
         let msg_hwnd = CreateWindowExW(

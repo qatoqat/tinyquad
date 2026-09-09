@@ -2,8 +2,8 @@
 //!
 //! None of these need a rendering context, so they run on any target with a test harness.
 
-// Everything in miniquad::graphics is re-exported at the crate root.
-use miniquad::*;
+// Everything in tinyquad::graphics is re-exported at the crate root.
+use tinyquad::*;
 
 #[test]
 fn uniform_type_byte_size() {

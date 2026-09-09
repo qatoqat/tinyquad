@@ -94,97 +94,28 @@ impl Default for GlFbconfig {
     }
 }
 
+impl From<&GlFbconfig> for crate::native::fbconfig::FbConfigSpec {
+    fn from(c: &GlFbconfig) -> Self {
+        crate::native::fbconfig::FbConfigSpec {
+            red_bits: c.red_bits,
+            green_bits: c.green_bits,
+            blue_bits: c.blue_bits,
+            alpha_bits: c.alpha_bits,
+            depth_bits: c.depth_bits,
+            stencil_bits: c.stencil_bits,
+            samples: c.samples,
+            doublebuffer: c.doublebuffer,
+        }
+    }
+}
+
 pub unsafe fn gl_choose_fbconfig(
     desired: &mut GlFbconfig,
     alternatives: &[GlFbconfig],
 ) -> Option<usize> {
-    let mut missing: i32;
-    let mut least_missing: i32 = 1000000;
-    let mut color_diff: i32;
-    let mut least_color_diff: i32 = 10000000;
-    let mut extra_diff: i32;
-    let mut least_extra_diff: i32 = 10000000;
-    let mut closest = None;
-
-    for (i, current) in alternatives.iter().enumerate() {
-        if desired.doublebuffer == current.doublebuffer {
-            missing = 0;
-            if desired.alpha_bits > 0 && current.alpha_bits == 0 {
-                missing += 1;
-            }
-            if desired.depth_bits > 0 && current.depth_bits == 0 {
-                missing += 1;
-            }
-            if desired.stencil_bits > 0 && current.stencil_bits == 0 {
-                missing += 1;
-            }
-            if desired.samples > 0 && current.samples == 0 {
-                // Technically, several multisampling buffers could be
-                //  involved, but that's a lower level implentation detail and
-                //  not important to us here, so we count them as one
-
-                missing += 1;
-            }
-
-            // These polynomials make many small channel size differences matter
-            //  less than one large channel size difference
-            //  Calculate color channel size difference value
-
-            color_diff = 0;
-            if desired.red_bits != -1 {
-                color_diff +=
-                    (desired.red_bits - current.red_bits) * (desired.red_bits - current.red_bits);
-            }
-            if desired.green_bits != -1 {
-                color_diff += (desired.green_bits - current.green_bits)
-                    * (desired.green_bits - current.green_bits)
-            }
-            if desired.blue_bits != -1 {
-                color_diff += (desired.blue_bits - current.blue_bits)
-                    * (desired.blue_bits - current.blue_bits)
-            }
-
-            // Calculate non-color channel size difference value
-            extra_diff = 0;
-            if desired.alpha_bits != -1 {
-                extra_diff += (desired.alpha_bits - current.alpha_bits)
-                    * (desired.alpha_bits - current.alpha_bits)
-            }
-            if desired.depth_bits != -1 {
-                extra_diff += (desired.depth_bits - current.depth_bits)
-                    * (desired.depth_bits - current.depth_bits);
-            }
-            if desired.stencil_bits != -1 {
-                extra_diff = (desired.stencil_bits - current.stencil_bits)
-                    * (desired.stencil_bits - current.stencil_bits);
-            }
-            if desired.samples != -1 {
-                extra_diff +=
-                    (desired.samples - current.samples) * (desired.samples - current.samples);
-            }
-            #[allow(clippy::comparison_chain)]
-            if missing < least_missing {
-                closest = Some(i);
-            } else if missing == least_missing {
-                if color_diff < least_color_diff
-                    || color_diff == least_color_diff && extra_diff < least_extra_diff
-                {
-                    closest = Some(i);
-                }
-            }
-
-            // Figure out if the current one is better than the best one found so far
-            //  Least number of missing buffers is the most important heuristic,
-            //  then color buffer size match and lastly size match for other buffers
-
-            if closest == Some(i) {
-                least_missing = missing;
-                least_color_diff = color_diff;
-                least_extra_diff = extra_diff
-            }
-        }
-    }
-    closest
+    let specs: Vec<crate::native::fbconfig::FbConfigSpec> =
+        alternatives.iter().map(Into::into).collect();
+    crate::native::fbconfig::fbconfig_choose(&(&*desired).into(), &specs)
 }
 
 pub struct Wgl {

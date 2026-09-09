@@ -1,14 +1,19 @@
-# Miniquad
+# Tinyquad
 
-[![Github Actions](https://github.com/not-fl3/miniquad/workflows/Cross-compile/badge.svg)](https://github.com/not-fl3/miniquad/actions?query=workflow%3A)
-[![Docs](https://docs.rs/miniquad/badge.svg?version=0.3.13)](https://docs.rs/miniquad/0.3.13/miniquad/index.html)
-[![Crates.io version](https://img.shields.io/crates/v/miniquad.svg)](https://crates.io/crates/miniquad)
-[![Discord chat](https://img.shields.io/discord/710177966440579103.svg?label=discord%20chat)](https://discord.gg/WfEp6ut)
-[![Matrix](https://img.shields.io/matrix/quad-general:matrix.org?label=matrix%20chat)](https://matrix.to/#/#quad-general:matrix.org)
+[![Github Actions](https://github.com/qatoqat/tinyquad/actions/workflows/rust.yml/badge.svg)](https://github.com/qatoqat/tinyquad/actions)
 
-Miniquad is a manifestation of a dream in a world where we do not need a deep dependencies tree and thousands lines of code to draw things with a computer.
+Tinyquad is a fork of [not-fl3/miniquad](https://github.com/not-fl3/miniquad),
+renamed so the two never get confused — in issues, PRs, or search results.
+All credit for the original design and implementation belongs to the miniquad
+authors; this fork carries fixes and platform work (notably iOS/Metal) that
+are maintained here independently.
 
-Miniquad aims to provide a graphics abstraction that works the same way on any platform with a GPU, being as light weight as possible while covering as many machines as possible. 
+It is a manifestation of a dream in a world where we do not need a deep
+dependencies tree and thousands lines of code to draw things with a computer.
+
+Tinyquad aims to provide a graphics abstraction that works the same way on any
+platform with a GPU, being as light weight as possible while covering as many
+machines as possible.
 
 ## Supported Platforms
 
@@ -23,10 +28,8 @@ Miniquad aims to provide a graphics abstraction that works the same way on any p
 
 ![Imgur](https://i.imgur.com/TRI50rk.gif)
 
-[examples/quad.rs](https://github.com/not-fl3/miniquad/blob/master/examples/quad.rs): [web demo](https://not-fl3.github.io/miniquad-samples/quad.html)<br/>
-[examples/offscreen.rs](https://github.com/not-fl3/miniquad/blob/master/examples/offscreen.rs): [web demo](https://not-fl3.github.io/miniquad-samples/offscreen.html)<br/>
-
-[PonasKovas/miniquad-mandelbrot](https://github.com/PonasKovas/miniquad-mandelbrot): [web demo](https://ponaskovas.github.io/miniquad-mandelbrot-wasm-demo/)
+[examples/quad.rs](https://github.com/qatoqat/tinyquad/blob/main/examples/quad.rs)<br/>
+[examples/offscreen.rs](https://github.com/qatoqat/tinyquad/blob/main/examples/offscreen.rs)<br/>
 
 # Building examples
 
@@ -37,7 +40,7 @@ cargo run --example quad
 ```
 
 On NixOS Linux you can use [`shell.nix`](shell.nix) to start a development
-environment where Miniquad can be built and run.
+environment where Tinyquad can be built and run.
 
 ## Windows
 
@@ -85,8 +88,8 @@ And then use the following .html to load .wasm:
 
 <body>
     <canvas id="glcanvas" tabindex='1'></canvas>
-    <!-- Minified and statically hosted version of https://github.com/not-fl3/miniquad/blob/master/native/sapp-wasm/js/gl.js -->
-    <script src="https://not-fl3.github.io/miniquad-samples/gl.js"></script>
+    <!-- Serve js/gl.js from this repository alongside the wasm -->
+    <script src="gl.js"></script>
     <script>load("quad.wasm");</script> <!-- Your compiled wasm file -->
 </body>
 
@@ -94,7 +97,7 @@ And then use the following .html to load .wasm:
 ```
 </details>
 
-One of the ways to server static .wasm and .html:
+One of the ways to serve static .wasm and .html:
 
 ```no-run
 cargo install basic-http-server
@@ -104,7 +107,7 @@ basic-http-server .
 ## Android
 
 Recommended way to build for android is using Docker.<br/>
-miniquad uses slightly modifed version of `cargo-apk`
+tinyquad uses slightly modifed version of `cargo-apk`
 
 ```no-run
 docker run --rm -v $(pwd)":/root/src" -w /root/src notfl3/cargo-apk cargo quad-apk build --example quad
@@ -170,7 +173,7 @@ cargo run --example quad --target x86_64-pc-windows-gnu
 
 * Hackability. Working on your own game, highly probable some hardware incompability will be found. Working around that kind of bugs should be easy, implementation details should not be hidden under layers of abstraction.
 
-* Forkability. Each platform implementation is, usually, just one pure Rust file. And this file is very copy-paste friendly - it doesnt use any miniquad specific abstractions. It is very easy to just copy some part of miniquad's platform implementation and use it standalone.
+* Forkability. Each platform implementation is, usually, just one pure Rust file. And this file is very copy-paste friendly - it doesnt use any tinyquad specific abstractions. It is very easy to just copy some part of tinyquad's platform implementation and use it standalone.
 
 # Non-goals
 
@@ -178,8 +181,7 @@ cargo run --example quad --target x86_64-pc-windows-gnu
 
 * High-end API, like Vulkan/DirectX 12. Take a look on [gfx-rs](https://github.com/gfx-rs/gfx) or [vulkano](https://github.com/vulkano-rs/vulkano) instead!
 
-# Platinum sponsors
+# Credits
 
-Miniquad is supported by:
-
-[SourceGear](https://www.sourcegear.com/)
+Tinyquad is a fork of [miniquad](https://github.com/not-fl3/miniquad) by
+[not-fl3](https://github.com/not-fl3) and contributors.

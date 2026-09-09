@@ -1,4 +1,4 @@
-use miniquad::*;
+use tinyquad::*;
 
 use glam::{Mat4, vec3};
 
@@ -227,11 +227,11 @@ fn main() {
         conf::AppleGfxApi::OpenGl
     };
 
-    miniquad::start(conf, move || Box::new(Stage::new()));
+    tinyquad::start(conf, move || Box::new(Stage::new()));
 }
 
 mod display_shader {
-    use miniquad::*;
+    use tinyquad::*;
 
     pub const VERTEX: &str = r#"#version 100
     attribute vec4 in_pos;
@@ -315,7 +315,7 @@ mod display_shader {
 }
 
 mod offscreen_shader {
-    use miniquad::*;
+    use tinyquad::*;
 
     pub const VERTEX: &str = r#"#version 100
     attribute vec3 in_pos;

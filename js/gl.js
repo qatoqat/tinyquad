@@ -1544,7 +1544,7 @@ function load(wasm_path) {
                     if (version != crate_version) {
                         console.error(
                             "Version mismatch: gl.js version is: " + version +
-                            ", miniquad crate version is: " + crate_version);
+                            ", tinyquad crate version is: " + crate_version);
                     }
                     init_plugins(plugins);
                     obj.exports.main();

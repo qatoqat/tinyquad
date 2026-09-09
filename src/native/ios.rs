@@ -34,16 +34,13 @@ thread_local! {
 }
 
 struct MainThreadState {
-    quit: bool,
     paused: bool,
     update_requested: bool,
-    view: *mut Object,
     keymods: KeyMods,
 }
 
 struct IosDisplay {
     view: ObjcId,
-    view_ctrl: ObjcId,
     _textfield_dlg: ObjcId,
     textfield: ObjcId,
     gfx_api: conf::AppleGfxApi,
@@ -107,9 +104,6 @@ fn dispatch_message(payload: &mut IosDisplay, msg: Message) {
         Message::Resume => {
             payload.state.lock().unwrap().paused = false;
         }
-        Message::Destroy => {
-            payload.state.lock().unwrap().quit = true;
-        }
         Message::Touch {
             phase,
             touch_id,
@@ -130,13 +124,7 @@ fn dispatch_message(payload: &mut IosDisplay, msg: Message) {
         Message::KeyDown { keycode } => {
             let keymods = {
                 let mut state = payload.state.lock().unwrap();
-                match keycode {
-                    KeyCode::LeftShift | KeyCode::RightShift => state.keymods.shift = true,
-                    KeyCode::LeftControl | KeyCode::RightControl => state.keymods.ctrl = true,
-                    KeyCode::LeftAlt | KeyCode::RightAlt => state.keymods.alt = true,
-                    KeyCode::LeftSuper | KeyCode::RightSuper => state.keymods.logo = true,
-                    _ => {}
-                }
+                state.keymods.update(keycode, true);
                 state.keymods
             };
             if let Some(ref mut event_handler) = payload.event_handler {
@@ -146,13 +134,7 @@ fn dispatch_message(payload: &mut IosDisplay, msg: Message) {
         Message::KeyUp { keycode } => {
             let keymods = {
                 let mut state = payload.state.lock().unwrap();
-                match keycode {
-                    KeyCode::LeftShift | KeyCode::RightShift => state.keymods.shift = false,
-                    KeyCode::LeftControl | KeyCode::RightControl => state.keymods.ctrl = false,
-                    KeyCode::LeftAlt | KeyCode::RightAlt => state.keymods.alt = false,
-                    KeyCode::LeftSuper | KeyCode::RightSuper => state.keymods.logo = false,
-                    _ => {}
-                }
+                state.keymods.update(keycode, false);
                 state.keymods
             };
             if let Some(ref mut event_handler) = payload.event_handler {
@@ -190,7 +172,6 @@ enum Message {
     },
     Pause,
     Resume,
-    Destroy,
 }
 unsafe impl Send for Message {}
 
@@ -302,31 +283,10 @@ pub fn define_glk_or_mtk_view(superclass: &Class) -> *const Class {
 
 unsafe fn get_proc_address(name: *const u8) -> Option<unsafe extern "C" fn()> {
     unsafe {
-        mod libc {
-            use std::ffi::{c_char, c_int, c_void};
-
-            pub const RTLD_LAZY: c_int = 1;
-            unsafe extern "C" {
-                pub fn dlopen(filename: *const c_char, flag: c_int) -> *mut c_void;
-                pub fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
-            }
-        }
-        static mut OPENGL: *mut std::ffi::c_void = std::ptr::null_mut();
-
-        if OPENGL.is_null() {
-            OPENGL = libc::dlopen(
-                c"/System/Library/Frameworks/OpenGLES.framework/OpenGLES".as_ptr() as _,
-                libc::RTLD_LAZY,
-            );
-        }
-
-        assert!(!OPENGL.is_null());
-
-        let symbol = libc::dlsym(OPENGL, name as _);
-        if symbol.is_null() {
-            return None;
-        }
-        Some(std::mem::transmute_copy(&symbol))
+        apple_util::get_proc_address_from(
+            c"/System/Library/Frameworks/OpenGLES.framework/OpenGLES",
+            name,
+        )
     }
 }
 
@@ -342,7 +302,12 @@ pub fn define_glk_or_mtk_view_dlg(superclass: &Class) -> *const Class {
         // Drain requests + UIKit-side messages and dispatch inline
         // before drawing this frame.
         while let Ok(request) = payload.requests_rx.try_recv() {
-            payload.state.lock().unwrap().process_request(request);
+            match request {
+                // `show_keyboard` needs the textfield, which lives on
+                // `IosDisplay` rather than the shared `MainThreadState`.
+                crate::native::Request::ShowKeyboard(show) => payload.show_keyboard(show),
+                request => payload.state.lock().unwrap().process_request(request),
+            }
         }
         while let Ok(msg) = payload.messages_rx.try_recv() {
             dispatch_message(payload, msg);
@@ -634,6 +599,7 @@ pub fn define_app_delegate() -> *const Class {
                 gfx_api: conf.platform.apple_gfx_api,
                 blocking_event_loop: conf.platform.blocking_event_loop,
                 view: view.view,
+                view_ctrl: view.view_ctrl,
                 ..NativeDisplayData::new(conf.window_width, conf.window_height, tx, clipboard)
             });
 
@@ -641,10 +607,8 @@ pub fn define_app_delegate() -> *const Class {
             // `Send`: it is shared between the event loop and the Metal render callbacks.
             #[allow(clippy::arc_with_non_send_sync)]
             let state_original = Arc::new(Mutex::new(MainThreadState {
-                quit: false,
                 paused: true,
                 update_requested: true,
-                view: view.view,
                 keymods: KeyMods {
                     shift: false,
                     ctrl: false,
@@ -655,7 +619,6 @@ pub fn define_app_delegate() -> *const Class {
 
             let payload = Box::new(IosDisplay {
                 view: view.view,
-                view_ctrl: view.view_ctrl,
                 textfield,
                 _textfield_dlg: textfield_dlg,
                 gfx_api: conf.platform.apple_gfx_api,
@@ -774,7 +737,7 @@ fn define_textfield_dlg() -> *const Class {
     let mut decl = ClassDecl::new("NSTexfieldDlg", superclass).unwrap();
 
     // those 3 callbacks are for resizing the canvas when keyboard is opened
-    // which is not currenlty supported by miniquad
+    // which is not currenlty supported by tinyquad
     extern "C" fn keyboard_was_shown(_: &Object, _: Sel, _notif: ObjcId) {}
     extern "C" fn keyboard_will_be_hidden(_: &Object, _: Sel, _notif: ObjcId) {}
     extern "C" fn keyboard_did_change_frame(_: &Object, _: Sel, _notif: ObjcId) {}
@@ -915,7 +878,7 @@ where
         }));
 
         let argc = 1;
-        let mut argv = b"Miniquad\0" as *const u8 as *mut i8;
+        let mut argv = b"Tinyquad\0" as *const u8 as *mut i8;
 
         let class: ObjcId = msg_send!(define_app_delegate(), class);
         let class_string = frameworks::NSStringFromClass(class as _);

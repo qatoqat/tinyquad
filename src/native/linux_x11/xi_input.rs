@@ -45,14 +45,13 @@ pub struct XIRawEvent {
     pub raw_values: *mut libc::c_double,
 }
 
-use core::ffi::{c_char, c_int};
+use core::ffi::c_int;
 crate::declare_module!(
     LibXi,
     "libXi.so",
     "libXi.so.6",
     ...
     ...
-    pub fn XQueryExtension(*mut Display, *const c_char, *mut c_int, *mut c_int, *mut c_int) -> c_int,
     pub fn XIQueryVersion(*mut Display, *mut c_int, *mut c_int) -> c_int,
     pub fn XISelectEvents(*mut Display, Window, *mut XIEventMask, c_int),
     pub fn XGetEventData(*mut Display, *mut libx11::XGenericEventCookie) -> c_int,

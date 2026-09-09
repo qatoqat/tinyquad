@@ -1,4 +1,4 @@
-use miniquad::*;
+use tinyquad::*;
 
 #[repr(C)]
 struct Vec2 {
@@ -82,7 +82,7 @@ impl Stage {
             blobs_positions: [(0., 0.); 32],
         };
 
-        let time = miniquad::date::now();
+        let time = tinyquad::date::now();
 
         Stage {
             pipeline,
@@ -98,7 +98,7 @@ impl Stage {
 
 impl EventHandler for Stage {
     fn update(&mut self) {
-        let time = miniquad::date::now();
+        let time = tinyquad::date::now();
         let delta = (time - self.last_frame) as f32;
         self.last_frame = time;
 
@@ -136,7 +136,7 @@ impl EventHandler for Stage {
     }
 
     fn draw(&mut self) {
-        self.uniforms.time = (miniquad::date::now() - self.start_time) as f32;
+        self.uniforms.time = (tinyquad::date::now() - self.start_time) as f32;
 
         self.ctx.begin_default_pass(Default::default());
         self.ctx.apply_pipeline(&self.pipeline);
@@ -159,12 +159,12 @@ fn main() {
         conf::AppleGfxApi::OpenGl
     };
 
-    miniquad::start(conf, move || Box::new(Stage::new()));
+    tinyquad::start(conf, move || Box::new(Stage::new()));
 }
 
 // based on: https://www.shadertoy.com/view/XsS3DV
 mod shader {
-    use miniquad::*;
+    use tinyquad::*;
 
     pub const VERTEX: &str = r#"#version 100
     attribute vec2 in_pos;

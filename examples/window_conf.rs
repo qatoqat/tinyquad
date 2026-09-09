@@ -1,4 +1,4 @@
-use miniquad::*;
+use tinyquad::*;
 
 struct Stage {
     ctx: GlContext,
@@ -12,9 +12,9 @@ impl EventHandler for Stage {
 }
 
 fn main() {
-    miniquad::start(
+    tinyquad::start(
         conf::Conf {
-            window_title: "Miniquad".to_string(),
+            window_title: "Tinyquad".to_string(),
             window_width: 1024,
             window_height: 768,
             fullscreen: true,

@@ -36,7 +36,6 @@ pub struct MacosDisplay {
     current_cursor: CursorIcon,
     cursor_grabbed: bool,
     cursors: HashMap<CursorIcon, ObjcId>,
-    gfx_api: crate::conf::AppleGfxApi,
 
     event_handler: Option<Box<dyn EventHandler>>,
     f: Option<Box<dyn 'static + FnOnce() -> Box<dyn EventHandler>>>,
@@ -107,27 +106,6 @@ impl MacosDisplay {
             }
         }
     }
-    fn clipboard_get(&mut self) -> Option<String> {
-        unsafe {
-            let pasteboard: ObjcId = msg_send![class!(NSPasteboard), generalPasteboard];
-            let content: ObjcId = msg_send![pasteboard, stringForType: NSStringPboardType];
-            let string = nsstring_to_string(content);
-            if string.is_empty() {
-                return None;
-            }
-            Some(string)
-        }
-    }
-    fn clipboard_set(&mut self, data: &str) {
-        let str: ObjcId = str_to_nsstring(data);
-        unsafe {
-            let pasteboard: ObjcId = msg_send![class!(NSPasteboard), generalPasteboard];
-            let () = msg_send![pasteboard, clearContents];
-            let arr: ObjcId = msg_send![class!(NSArray), arrayWithObject: str];
-            let () = msg_send![pasteboard, writeObjects: arr];
-        }
-    }
-
     pub fn context(&mut self) -> Option<&mut dyn EventHandler> {
         let event_handler = self.event_handler.as_deref_mut()?;
 
@@ -505,32 +483,10 @@ pub fn define_cocoa_window_delegate() -> *const Class {
 
 unsafe fn get_proc_address(name: *const u8) -> Option<unsafe extern "C" fn()> {
     unsafe {
-        mod libc {
-            use std::ffi::{c_char, c_int, c_void};
-
-            pub const RTLD_LAZY: c_int = 1;
-            unsafe extern "C" {
-                pub fn dlopen(filename: *const c_char, flag: c_int) -> *mut c_void;
-                pub fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
-            }
-        }
-        static mut OPENGL: *mut std::ffi::c_void = std::ptr::null_mut();
-
-        if OPENGL.is_null() {
-            OPENGL = libc::dlopen(
-                c"/System/Library/Frameworks/OpenGL.framework/Versions/Current/OpenGL".as_ptr()
-                    as _,
-                libc::RTLD_LAZY,
-            );
-        }
-
-        assert!(!OPENGL.is_null());
-
-        let symbol = libc::dlsym(OPENGL, name as _);
-        if symbol.is_null() {
-            return None;
-        }
-        Some(std::mem::transmute_copy(&symbol))
+        get_proc_address_from(
+            c"/System/Library/Frameworks/OpenGL.framework/Versions/Current/OpenGL",
+            name,
+        )
     }
 }
 
@@ -1086,9 +1042,28 @@ unsafe fn create_opengl_view(
 struct MacosClipboard;
 impl crate::native::Clipboard for MacosClipboard {
     fn get(&mut self) -> Option<String> {
-        None
+        unsafe {
+            let pasteboard: ObjcId = msg_send![class!(NSPasteboard), generalPasteboard];
+            let content: ObjcId = msg_send![pasteboard, stringForType: NSStringPboardType];
+            if content.is_null() {
+                return None;
+            }
+            let string = nsstring_to_string(content);
+            if string.is_empty() {
+                return None;
+            }
+            Some(string)
+        }
     }
-    fn set(&mut self, _data: &str) {}
+    fn set(&mut self, data: &str) {
+        let str: ObjcId = str_to_nsstring(data);
+        unsafe {
+            let pasteboard: ObjcId = msg_send![class!(NSPasteboard), generalPasteboard];
+            let () = msg_send![pasteboard, clearContents];
+            let arr: ObjcId = msg_send![class!(NSArray), arrayWithObject: str];
+            let () = msg_send![pasteboard, writeObjects: arr];
+        }
+    }
 }
 
 struct FrameSignal {
@@ -1350,7 +1325,6 @@ where
             current_cursor: CursorIcon::Default,
             cursor_grabbed: false,
             cursors: HashMap::new(),
-            gfx_api: conf.platform.apple_gfx_api,
             f: Some(Box::new(f)),
             event_handler: None,
             native_requests: rx,

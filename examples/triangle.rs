@@ -1,4 +1,4 @@
-use miniquad::*;
+use tinyquad::*;
 
 #[repr(C)]
 struct Vertex {
@@ -98,11 +98,11 @@ fn main() {
         conf::AppleGfxApi::OpenGl
     };
 
-    miniquad::start(conf, move || Box::new(Stage::new()));
+    tinyquad::start(conf, move || Box::new(Stage::new()));
 }
 
 mod shader {
-    use miniquad::*;
+    use tinyquad::*;
 
     pub const VERTEX: &str = r#"#version 100
     attribute vec2 in_pos;

@@ -51,7 +51,7 @@ crate::declare_module!(
 );
 
 impl LibXkbCommon {
-    // The keycodes in Miniquad are obtained without modifiers (for example, `Shift + Key1` is
+    // The keycodes in Tinyquad are obtained without modifiers (for example, `Shift + Key1` is
     // translated to `Key1` and not `Exclam`)
     pub unsafe fn keymap_key_get_sym_without_mod(
         &mut self,

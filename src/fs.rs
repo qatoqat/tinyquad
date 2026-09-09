@@ -56,17 +56,9 @@ fn load_file_android<F: Fn(Response)>(path: &str, on_loaded: F) {
 
         let filename = std::ffi::CString::new(path).unwrap();
 
-        let mut data: native::android_asset = unsafe { std::mem::zeroed() };
-
-        unsafe { native::android::load_asset(filename.as_ptr(), &mut data as _) };
-
-        if !data.content.is_null() {
-            let slice =
-                unsafe { std::slice::from_raw_parts(data.content, data.content_length as _) };
-            let response = slice.iter().map(|c| *c as _).collect::<Vec<_>>();
-            Ok(response)
-        } else {
-            Err(Error::AndroidAssetLoadingError)
+        match unsafe { native::android::load_asset(filename.as_ptr()) } {
+            Some(data) => Ok(data),
+            None => Err(Error::AndroidAssetLoadingError),
         }
     }
 

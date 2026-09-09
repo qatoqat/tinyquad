@@ -1,6 +1,6 @@
 use crate::event::KeyCode;
 
-/// Translate an Android `AKEYCODE_*` value into miniquad's
+/// Translate an Android `AKEYCODE_*` value into tinyquad's
 /// [`KeyCode`]. Keep entries ordered by numeric value; the comments
 /// reference the `KEYCODE_*` symbol from Android's `KeyEvent.java`
 /// so each line is self-explanatory at a glance.

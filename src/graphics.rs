@@ -1,10 +1,6 @@
-//mod texture;
-
 use crate::native::gl::*;
 
 use std::{error::Error, fmt::Display};
-
-//pub use texture::{FilterMode, TextureAccess, TextureFormat, TextureParams, TextureWrap};
 
 mod gl;
 
@@ -389,7 +385,7 @@ pub struct TextureParams {
     pub mipmap_filter: MipmapFilterMode,
     pub width: u32,
     pub height: u32,
-    // All miniquad API could work without this flag being explicit.
+    // All tinyquad API could work without this flag being explicit.
     // We can decide if mipmaps are required by the data provided
     // And reallocate non-mipmapped texture(on metal) on generateMipmaps call
     // But! Reallocating cubemaps is too much struggle, so leave it for later.
@@ -433,8 +429,8 @@ pub(crate) enum TextureIdInner {
 pub struct TextureId(TextureIdInner);
 
 impl TextureId {
-    /// Wrap raw platform texture into a TextureId acceptable for miniquad
-    /// Without allocating any miniquad memory and without letting miniquad
+    /// Wrap raw platform texture into a TextureId acceptable for tinyquad
+    /// Without allocating any tinyquad memory and without letting tinyquad
     /// manage the texture.
     pub fn from_raw_id(raw_id: RawId) -> TextureId {
         TextureId(TextureIdInner::Raw(raw_id))
@@ -448,7 +444,7 @@ impl TextureId {
 ///
 /// Example:
 ///```
-///# use miniquad::{BlendState, BlendFactor, BlendValue, Equation};
+///# use tinyquad::{BlendState, BlendFactor, BlendValue, Equation};
 ///BlendState::new(
 ///    Equation::Add,
 ///    BlendFactor::Value(BlendValue::SourceAlpha),
@@ -698,7 +694,7 @@ pub struct PipelineParams {
     /// Color (RGB) blend function. If None - blending will be disabled for this pipeline.
     /// Usual use case to get alpha-blending:
     ///```
-    ///# use miniquad::{PipelineParams, BlendState, BlendValue, BlendFactor, Equation};
+    ///# use tinyquad::{PipelineParams, BlendState, BlendValue, BlendFactor, Equation};
     ///PipelineParams {
     ///    color_blend: Some(BlendState::new(
     ///        Equation::Add,
@@ -714,7 +710,7 @@ pub struct PipelineParams {
     /// On webgl canvas's resulting alpha channel will be used to blend the whole canvas background.
     /// To avoid modifying only alpha channel, but keep usual transparency:
     ///```
-    ///# use miniquad::{PipelineParams, BlendState, BlendValue, BlendFactor, Equation};
+    ///# use tinyquad::{PipelineParams, BlendState, BlendValue, BlendFactor, Equation};
     ///PipelineParams {
     ///    color_blend: Some(BlendState::new(
     ///        Equation::Add,
@@ -816,7 +812,7 @@ pub struct BufferId(usize);
 ///
 /// The query is created using [`ElapsedQuery::new()`] function.
 /// ```
-/// use miniquad::graphics::ElapsedQuery;
+/// use tinyquad::graphics::ElapsedQuery;
 /// // initialization
 /// let mut query = ElapsedQuery::new();
 /// ```
@@ -824,11 +820,11 @@ pub struct BufferId(usize);
 /// [`ElapsedQuery::end_query()`]
 ///
 /// ```ignore
-/// # use miniquad::graphics::ElapsedQuery;
+/// # use tinyquad::graphics::ElapsedQuery;
 /// # let mut query = ElapsedQuery::new();
 ///
 /// query.begin_query();
-/// // one or multiple calls to miniquad::GraphicsContext::draw()
+/// // one or multiple calls to tinyquad::GraphicsContext::draw()
 /// query.end_query();
 /// ```
 ///
@@ -837,7 +833,7 @@ pub struct BufferId(usize);
 ///
 /// ```ignore
 /// // couple frames later:
-/// # use miniquad::graphics::ElapsedQuery;
+/// # use tinyquad::graphics::ElapsedQuery;
 /// # let mut query = ElapsedQuery::new();
 /// # query.begin_query();
 /// # query.end_query();
@@ -850,7 +846,7 @@ pub struct BufferId(usize);
 /// And during finalization:
 /// ```ignore
 /// // clean-up
-/// # use miniquad::graphics::ElapsedQuery;
+/// # use tinyquad::graphics::ElapsedQuery;
 /// # let mut query = ElapsedQuery::new();
 /// # query.begin_query();
 /// # query.end_query();
@@ -1078,10 +1074,10 @@ pub struct ContextInfo {
     /// allowing to see which glsl versions are actually supported.
     /// Unfortunately, it only works on GL4.3+... and even there it is not quite correct.
     ///
-    /// miniquad will take a guess based on GL_VERSION_STRING, current platform and implementation
+    /// tinyquad will take a guess based on GL_VERSION_STRING, current platform and implementation
     /// details. Would be all false on metal.
     pub glsl_support: GlslSupport,
-    /// List of platform-dependent features that miniquad failed to make cross-platforms
+    /// List of platform-dependent features that tinyquad failed to make cross-platforms
     /// and therefore they might be missing.
     pub features: Features,
 }
@@ -1102,7 +1098,7 @@ pub trait RenderingBackend {
     /// For metal context's ShaderSource should contain MSL source string, for GL - glsl.
     ///
     /// If in doubt, _most_ OpenGL contexts support "#version 100" glsl shaders.
-    /// So far miniquad never encountered where it can create a rendering context,
+    /// So far tinyquad never encountered where it can create a rendering context,
     /// but `version 100` shaders are not supported.
     ///
     /// Typical `new_shader` invocation for an MSL and `glsl version 100` sources:
@@ -1173,7 +1169,7 @@ pub trait RenderingBackend {
     unsafe fn texture_raw_id(&self, texture: TextureId) -> RawId;
 
     /// Update whole texture content
-    /// bytes should be width * height * 4 size - non rgba8 textures are not supported yet anyway
+    /// bytes should be `format.size(width, height)` bytes long
     fn texture_update(&mut self, texture: TextureId, bytes: &[u8]) {
         let (width, height) = self.texture_size(texture);
         self.texture_update_part(texture, 0 as _, 0 as _, width as _, height as _, bytes)
@@ -1288,7 +1284,7 @@ pub trait RenderingBackend {
 
     /// Delete GPU buffer, leaving handle unmodified.
     ///
-    /// More high-level code on top of miniquad probably is going to call this in Drop
+    /// More high-level code on top of tinyquad probably is going to call this in Drop
     /// implementation of some more RAII buffer object.
     ///
     /// There is no protection against using deleted buffers later. However its not an UB in OpenGl
@@ -1297,7 +1293,7 @@ pub trait RenderingBackend {
 
     /// Delete GPU texture, leaving handle unmodified.
     ///
-    /// More high-level code on top of miniquad probably is going to call this in Drop
+    /// More high-level code on top of tinyquad probably is going to call this in Drop
     /// implementation of some more RAII buffer object.
     ///
     /// There is no protection against using deleted textures later. However its not a CPU-level UB
@@ -1306,7 +1302,7 @@ pub trait RenderingBackend {
 
     /// Delete GPU program, leaving handle unmodified.
     ///
-    /// More high-level code on top of miniquad probably is going to call this in Drop
+    /// More high-level code on top of tinyquad probably is going to call this in Drop
     /// implementation of some more RAII buffer object.
     ///
     /// There is no protection against using deleted programs later. However its not a CPU-level

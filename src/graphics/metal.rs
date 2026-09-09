@@ -112,21 +112,6 @@ impl From<BlendFactor> for MTLBlendFactor {
     }
 }
 
-// impl From<StencilOp> for MTLStencilOperation {
-//     fn from(op: StencilOp) -> Self {
-//         match op {
-//             StencilOp::Keep => MTLStencilOperation::Keep,
-//             StencilOp::Zero => MTLStencilOperation::Zero,
-//             StencilOp::Replace => MTLStencilOperation::Replace,
-//             StencilOp::IncrementClamp => MTLStencilOperation::IncrementClamp,
-//             StencilOp::DecrementClamp => MTLStencilOperation::DecrementClamp,
-//             StencilOp::Invert => MTLStencilOperation::Invert,
-//             StencilOp::IncrementWrap => MTLStencilOperation::IncrementWrap,
-//             StencilOp::DecrementWrap => MTLStencilOperation::DecrementWrap,
-//         }
-//     }
-// }
-
 impl From<Equation> for MTLBlendOperation {
     fn from(cf: Equation) -> Self {
         match cf {
@@ -171,6 +156,16 @@ impl From<PrimitiveType> for MTLPrimitiveType {
     }
 }
 
+/// Metal has no 8-bit indices; index buffers record their element
+/// size (in bytes) at creation, and only 2 and 4 are valid.
+fn mtl_index_type(element_size: u32) -> MTLIndexType {
+    match element_size {
+        2 => MTLIndexType::UInt16,
+        4 => MTLIndexType::UInt32,
+        _ => panic!("Unsupported index element size: {}", element_size),
+    }
+}
+
 impl From<TextureFormat> for MTLPixelFormat {
     fn from(format: TextureFormat) -> Self {
         match format {
@@ -183,24 +178,9 @@ impl From<TextureFormat> for MTLPixelFormat {
     }
 }
 
-// impl From<CullFace> for MTLCullMode {
-//     fn from(cull_face: CullFace) -> Self {
-//         match cull_face {
-//             CullFace::Back => MTLCullMode::Back,
-//             CullFace::Front => MTLCullMode::Front,
-//             CullFace::Nothing => MTLCullMode::None,
-//         }
-//     }
-// }
-
-// impl From<FrontFaceOrder> for MTLWinding {
-//     fn from(order: FrontFaceOrder) -> Self {
-//         match order {
-//             FrontFaceOrder::Clockwise => MTLWinding::Clockwise,
-//             FrontFaceOrder::CounterClockwise => MTLWinding::CounterClockwise,
-//         }
-//     }
-// }
+// Metal does not apply `PipelineParams::cull_face` /
+// `front_face_order` / `stencil_test` yet — those are GL-only for
+// now (see `apply_pipeline`).
 
 #[inline]
 fn roundup_ub_buffer(current_buffer: u64) -> u64 {
@@ -216,17 +196,19 @@ fn roundup_ub_buffer(current_buffer: u64) -> u64 {
 #[derive(Clone, Debug)]
 pub struct Buffer {
     raw: Vec<ObjcId>,
-    //buffer_type: BufferType,
+    /// Bytes per index element, set only for index buffers. Metal has
+    /// no 8-bit indices, so only 2 and 4 are valid here.
+    index_type: Option<u32>,
     size: usize,
     /// Cached `MTLResourceOptions` for grow-on-demand allocations.
     options: u64,
-    //index_type: Option<IndexType>,
     value: usize,
     next_value: usize,
 }
 
 #[derive(Debug)]
 struct ShaderInternal {
+    library: ObjcId,
     vertex_function: ObjcId,
     fragment_function: ObjcId,
     //uniforms: Vec<ShaderUniform>,
@@ -247,7 +229,7 @@ struct PipelineInternal {
     //layout: Vec<BufferLayout>,
     //attributes: Vec<VertexAttributeInternal>,
     _shader: ShaderId,
-    //params: PipelineParams,
+    primitive_type: PrimitiveType,
 }
 
 #[derive(Clone, Copy)]
@@ -296,9 +278,10 @@ pub struct MetalContext {
     view: ObjcId,
     device: ObjcId,
     current_frame_index: usize,
-    uniform_buffers: [ObjcId; 3],
-    // cached index_buffer from apply_bindings
-    index_buffer: Option<ObjcId>,
+    uniform_buffers: [ObjcId; NUM_INFLIGHT_FRAMES],
+    // cached index buffer from apply_bindings: the rotation-pool
+    // MTLBuffer plus the buffer's index element size in bytes
+    index_buffer: Option<(ObjcId, u32)>,
     // cached pipeline from apply_pipeline
     current_pipeline: Option<Pipeline>,
     current_ub_offset: u64,
@@ -318,52 +301,6 @@ impl MetalContext {
             let device: ObjcId = msg_send![view, device];
             assert!(!device.is_null());
             let command_queue: ObjcId = msg_send![device, newCommandQueue];
-
-            if false {
-                let capture_manager = msg_send_![class![MTLCaptureManager], sharedCaptureManager];
-                assert!(!capture_manager.is_null());
-
-                let MTLCaptureDestinationGPUTraceDocument = 2u64;
-                if !msg_send![
-                    capture_manager,
-                    supportsDestination: MTLCaptureDestinationGPUTraceDocument
-                ] {
-                    // put this into Info.plist near the binary (in target/debug/whatever/whatever, not in the working directory)
-                    /*
-                    <?xml version="1.0" encoding="UTF-8"?>
-                    <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-                    <plist version="1.0">
-                    <dict>
-                        <key>MetalCaptureEnabled</key>
-                        <true/>
-                    </dict>
-                    </plist>
-                    */
-                    panic!(
-                        "capture failed (probably missing Info.plist, read the comment near this panic)"
-                    );
-                }
-
-                let capture_descriptor =
-                    msg_send_![msg_send_![class![MTLCaptureDescriptor], alloc], init];
-                msg_send_![capture_descriptor, setCaptureObject: device];
-                msg_send_![
-                    capture_descriptor,
-                    setDestination: MTLCaptureDestinationGPUTraceDocument
-                ];
-                let path = apple_util::str_to_nsstring("/Users/fedor/wtf1.gputrace");
-                let url = msg_send_![class!(NSURL), fileURLWithPath: path];
-                msg_send_![capture_descriptor, setOutputURL: url];
-
-                let mut error: ObjcId = nil;
-                if !msg_send![capture_manager, startCaptureWithDescriptor:capture_descriptor
-                              error:&mut error]
-                {
-                    let description: ObjcId = msg_send![error, localizedDescription];
-                    let string = apple_util::nsstring_to_string(description);
-                    panic!("Capture error: {}", string);
-                }
-            }
 
             #[cfg(target_os = "macos")]
             let options = {
@@ -426,7 +363,7 @@ impl RenderingBackend for MetalContext {
             glsl_support: Default::default(),
             features: Features {
                 instancing: true,
-                resolve_attachments: false,
+                resolve_attachments: true,
             },
         }
     }
@@ -435,18 +372,30 @@ impl RenderingBackend for MetalContext {
         buffer.size
     }
     fn delete_buffer(&mut self, buffer: BufferId) {
-        let buffer = &self.buffers[buffer.0];
+        // Ids are indices into `self.buffers`, so the entry must stay.
+        // Release the backing MTLBuffers and leave an empty rotation
+        // pool: any later use panics on the empty pool instead of
+        // messaging freed Objective-C memory.
+        let buffer = &mut self.buffers[buffer.0];
         unsafe {
-            for buffer in &buffer.raw {
-                msg_send_![*buffer, release];
+            for raw in buffer.raw.drain(..) {
+                msg_send_![raw, release];
             }
         }
+        buffer.size = 0;
     }
     fn delete_texture(&mut self, texture: TextureId) {
-        let texture = self.textures.get(texture);
+        let texture = self.textures.get_mut(texture);
         unsafe {
             msg_send_![texture.texture, release];
+            msg_send_![texture.sampler, release];
+            msg_send_![texture.sampler_descriptor, release];
         }
+        // Messaging nil is a no-op, so later uses of a deleted texture
+        // degrade instead of touching released objects.
+        texture.texture = nil;
+        texture.sampler = nil;
+        texture.sampler_descriptor = nil;
     }
     fn apply_viewport(&mut self, _x: i32, _y: i32, _w: i32, _h: i32) {}
     fn apply_scissor_rect(&mut self, x: i32, y: i32, w: i32, h: i32) {
@@ -493,14 +442,19 @@ impl RenderingBackend for MetalContext {
             MipmapFilterMode::Linear => MTLSamplerMipFilter::Linear,
         };
 
+        // Mutate the texture's own descriptor (not a fresh one) so the
+        // wrap modes set at creation survive, and release the sampler
+        // this replaces — `newSamplerStateWithDescriptor:` hands us a
+        // +1 reference we own.
         texture.sampler = unsafe {
-            let sampler_descriptor = msg_send_![class!(MTLSamplerDescriptor), new];
-            msg_send_![sampler_descriptor, setMinFilter: filter];
-            msg_send_![sampler_descriptor, setMipFilter: mipmap_filter];
-            msg_send_![
+            msg_send_![texture.sampler_descriptor, setMinFilter: filter];
+            msg_send_![texture.sampler_descriptor, setMipFilter: mipmap_filter];
+            let sampler = msg_send_![
                 self.device,
-                newSamplerStateWithDescriptor: sampler_descriptor
-            ]
+                newSamplerStateWithDescriptor: texture.sampler_descriptor
+            ];
+            msg_send_![texture.sampler, release];
+            sampler
         };
     }
     fn texture_set_mag_filter(&mut self, texture: TextureId, filter: FilterMode) {
@@ -513,7 +467,12 @@ impl RenderingBackend for MetalContext {
 
         texture.sampler = unsafe {
             msg_send_![texture.sampler_descriptor, setMagFilter: filter];
-            msg_send_![self.device, newSamplerStateWithDescriptor: texture.sampler_descriptor]
+            let sampler = msg_send_![
+                self.device,
+                newSamplerStateWithDescriptor: texture.sampler_descriptor
+            ];
+            msg_send_![texture.sampler, release];
+            sampler
         };
     }
     fn texture_set_wrap(&mut self, texture: TextureId, wrap_x: TextureWrap, wrap_y: TextureWrap) {
@@ -532,10 +491,14 @@ impl RenderingBackend for MetalContext {
         };
 
         texture.sampler = unsafe {
-            //msg_send_![texture.sampler_descriptor, setRAddressMode: wrap];
             msg_send_![texture.sampler_descriptor, setSAddressMode: wrap_s];
             msg_send_![texture.sampler_descriptor, setTAddressMode: wrap_t];
-            msg_send_![self.device, newSamplerStateWithDescriptor: texture.sampler_descriptor]
+            let sampler = msg_send_![
+                self.device,
+                newSamplerStateWithDescriptor: texture.sampler_descriptor
+            ];
+            msg_send_![texture.sampler, release];
+            sampler
         };
     }
     fn texture_resize(
@@ -670,10 +633,21 @@ impl RenderingBackend for MetalContext {
         &self.passes[render_pass.0].texture
     }
 
-    fn new_buffer(&mut self, _: BufferType, _usage: BufferUsage, data: BufferSource) -> BufferId {
-        let size = match &data {
-            BufferSource::Slice(data) => data.size,
-            BufferSource::Empty { size, .. } => *size,
+    fn new_buffer(
+        &mut self,
+        buffer_type: BufferType,
+        _usage: BufferUsage,
+        data: BufferSource,
+    ) -> BufferId {
+        let (size, element_size) = match &data {
+            BufferSource::Slice(data) => (data.size, data.element_size),
+            BufferSource::Empty { size, element_size } => (*size, *element_size),
+        };
+        let index_type = match buffer_type {
+            BufferType::IndexBuffer if element_size == 2 || element_size == 4 => {
+                Some(element_size as u32)
+            }
+            _ => None,
         };
         // Cached on the `Buffer` so grow-on-demand allocations in
         // `buffer_update` match the original storage mode.
@@ -706,11 +680,11 @@ impl RenderingBackend for MetalContext {
                           options:options]
             }
         };
-        unsafe {
-            msg_send_![buffer, retain];
-        }
+        // `newBufferWith*` hands us a +1 reference we own; the entries
+        // in `raw` are released by `delete_buffer`.
         let buffer = Buffer {
             raw: vec![buffer],
+            index_type,
             size,
             options,
             value: 0,
@@ -735,9 +709,6 @@ impl RenderingBackend for MetalContext {
                           newBufferWithLength:buffer.size
                           options:buffer.options]
             };
-            unsafe {
-                msg_send_![new_slot, retain];
-            }
             buffer.raw.push(new_slot);
         }
 
@@ -772,7 +743,7 @@ impl RenderingBackend for MetalContext {
             if library.is_null() {
                 let description: ObjcId = msg_send![error, localizedDescription];
                 let string = apple_util::nsstring_to_string(description);
-                panic!("Shader {}", string);
+                return Err(ShaderError::LinkError(string));
             }
 
             let vertex_function: ObjcId = msg_send![library, newFunctionWithName: apple_util::str_to_nsstring("vertexShader")];
@@ -780,6 +751,7 @@ impl RenderingBackend for MetalContext {
             let fragment_function: ObjcId = msg_send![library, newFunctionWithName: apple_util::str_to_nsstring("fragmentShader")];
             assert!(!fragment_function.is_null());
             let shader = ShaderInternal {
+                library,
                 vertex_function,
                 fragment_function,
             };
@@ -873,7 +845,6 @@ impl RenderingBackend for MetalContext {
 
         let texture = unsafe {
             let sampler_descriptor = msg_send_![class!(MTLSamplerDescriptor), new];
-            msg_send_![sampler_descriptor, retain];
             let min_filter = match params.min_filter {
                 FilterMode::Nearest => MTLSamplerMinMagFilter::Nearest,
                 FilterMode::Linear => MTLSamplerMinMagFilter::Linear,
@@ -898,7 +869,6 @@ impl RenderingBackend for MetalContext {
                 newSamplerStateWithDescriptor: sampler_descriptor
             ];
             let raw_texture = msg_send_![self.device, newTextureWithDescriptor: descriptor];
-            msg_send_![raw_texture, retain];
             self.textures.0.push(Texture {
                 sampler: sampler_state,
                 texture: raw_texture,
@@ -1021,7 +991,7 @@ impl RenderingBackend for MetalContext {
                 msg_send_![mtl_buffer_desc, setStepRate: step_rate];
             };
 
-            let mut offsets = [0u64; 50];
+            let mut offsets = vec![0u64; buffer_layout.len()];
             for (i, a) in attributes.iter().enumerate() {
                 let offset = &mut offsets[a.buffer_index];
                 attribute(
@@ -1084,10 +1054,6 @@ impl RenderingBackend for MetalContext {
                     ];
                     msg_send_![
                         color_attachment,
-                        setSourceRGBBlendFactor: MTLBlendFactor::from(src_rgb)
-                    ];
-                    msg_send_![
-                        color_attachment,
                         setSourceAlphaBlendFactor: MTLBlendFactor::from(src_alpha)
                     ];
                     msg_send_![
@@ -1139,34 +1105,12 @@ impl RenderingBackend for MetalContext {
             msg_send_![depth_stencil_desc, setDepthWriteEnabled: BOOL::from(params.depth_write)];
             msg_send_![depth_stencil_desc, setDepthCompareFunction: MTLCompareFunction::from(params.depth_test)];
 
-            // if let Some(stencil_test) = params.stencil_test {
-            //     let back_face_stencil_desc = StencilDescriptor::new();
-            //     back_face_stencil_desc.set_stencil_compare_function(stencil_test.back.test_func.into());
-            //     back_face_stencil_desc.set_stencil_failure_operation(stencil_test.back.fail_op.into());
-            //     back_face_stencil_desc
-            //         .set_depth_failure_operation(stencil_test.back.depth_fail_op.into());
-            //     back_face_stencil_desc.set_read_mask(stencil_test.back.test_mask);
-            //     back_face_stencil_desc.set_write_mask(stencil_test.back.write_mask);
-
-            //     depth_stencil_desc.set_back_face_stencil(Some(back_face_stencil_desc.as_ref()));
-
-            //     let front_face_stencil_desc = StencilDescriptor::new();
-            //     front_face_stencil_desc
-            //         .set_stencil_compare_function(stencil_test.front.test_func.into());
-            //     front_face_stencil_desc
-            //         .set_stencil_failure_operation(stencil_test.front.fail_op.into());
-            //     front_face_stencil_desc
-            //         .set_depth_failure_operation(stencil_test.front.depth_fail_op.into());
-            //     front_face_stencil_desc.set_read_mask(stencil_test.front.test_mask);
-            //     front_face_stencil_desc.set_write_mask(stencil_test.front.write_mask);
-
-            //     depth_stencil_desc.set_front_face_stencil(Some(front_face_stencil_desc.as_ref()))
-            // }
-
             let depth_stencil_state = msg_send_![
                 self.device,
                 newDepthStencilStateWithDescriptor: depth_stencil_desc
             ];
+            // The device copies the descriptor; drop ours.
+            msg_send_![depth_stencil_desc, release];
 
             let pipeline = PipelineInternal {
                 pipeline_state,
@@ -1174,7 +1118,7 @@ impl RenderingBackend for MetalContext {
                 //layout: buffer_layout.to_vec(),
                 //attributes: vertex_layout,
                 _shader: shader,
-                //params,
+                primitive_type: params.primitive_type,
             };
 
             self.pipelines.push(pipeline);
@@ -1196,8 +1140,8 @@ impl RenderingBackend for MetalContext {
 
             msg_send_![render_encoder, setRenderPipelineState: pipeline.pipeline_state];
             msg_send_![render_encoder, setDepthStencilState:pipeline.depth_stencil_state];
-            // render_encoder.set_front_facing_winding(pipeline.params.front_face_order.into());
-            // render_encoder.set_cull_mode(pipeline.params.cull_face.into());
+            // TODO: cull_face, front_face_order and stencil_test are
+            // silently ignored on Metal; wire them up here.
         }
     }
 
@@ -1223,7 +1167,14 @@ impl RenderingBackend for MetalContext {
                 buffer.next_value = buffer.value + 1;
             }
             let index_buffer = &mut self.buffers[index_buffer.0];
-            self.index_buffer = Some(index_buffer.raw[index_buffer.value]);
+            assert!(
+                index_buffer.index_type.is_some(),
+                "index buffer element size must be 2 or 4 bytes"
+            );
+            self.index_buffer = Some((
+                index_buffer.raw[index_buffer.value],
+                index_buffer.index_type.unwrap(),
+            ));
             index_buffer.next_value = index_buffer.value + 1;
 
             let img_count = textures.len();
@@ -1423,15 +1374,17 @@ impl RenderingBackend for MetalContext {
         assert!(self.render_encoder.is_some(), "draw before begin_pass!");
         let render_encoder = self.render_encoder.unwrap();
         assert!(self.index_buffer.is_some());
-        let index_buffer = self.index_buffer.unwrap();
+        let (index_buffer, index_type) = self.index_buffer.unwrap();
 
-        assert!(base_element == 0); // TODO: figure indexBufferOffset/baseVertex
+        let pipeline = self.current_pipeline.expect("draw before apply_pipeline");
+        let primitive_type = MTLPrimitiveType::from(self.pipelines[pipeline.0].primitive_type);
+        let index_buffer_offset = (index_type as i64 * base_element as i64) as u64;
         unsafe {
-            msg_send_![render_encoder, drawIndexedPrimitives:MTLPrimitiveType::Triangle
+            msg_send_![render_encoder, drawIndexedPrimitives:primitive_type
                        indexCount:num_elements as u64
-                       indexType:MTLIndexType::UInt16
+                       indexType:mtl_index_type(index_type)
                        indexBuffer:index_buffer
-                       indexBufferOffset:0
+                       indexBufferOffset:index_buffer_offset
                        instanceCount:num_instances as u64
                        baseVertex:0
                        baseInstance:0
@@ -1439,11 +1392,29 @@ impl RenderingBackend for MetalContext {
         }
     }
 
-    fn delete_shader(&mut self, _shader: ShaderId) {
-        // TODO: place holder
+    fn delete_shader(&mut self, shader: ShaderId) {
+        // Ids are indices into `self.shaders`, so the entry stays;
+        // release the owned Objective-C objects and nil the fields —
+        // messaging nil is a no-op, so later uses degrade instead of
+        // touching freed memory.
+        let shader = &mut self.shaders[shader.0];
+        unsafe {
+            msg_send_![shader.vertex_function, release];
+            msg_send_![shader.fragment_function, release];
+            msg_send_![shader.library, release];
+        }
+        shader.library = nil;
+        shader.vertex_function = nil;
+        shader.fragment_function = nil;
     }
-    fn delete_pipeline(&mut self, _pipeline: Pipeline) {
-        // TODO: place holder
+    fn delete_pipeline(&mut self, pipeline: Pipeline) {
+        let pipeline = &mut self.pipelines[pipeline.0];
+        unsafe {
+            msg_send_![pipeline.pipeline_state, release];
+            msg_send_![pipeline.depth_stencil_state, release];
+        }
+        pipeline.pipeline_state = nil;
+        pipeline.depth_stencil_state = nil;
     }
 
     fn commit_frame(&mut self) {
@@ -1455,7 +1426,6 @@ impl RenderingBackend for MetalContext {
         unsafe {
             assert!(!self.command_queue.is_null());
             let drawable: ObjcId = msg_send!(self.view, currentDrawable);
-            //msg_send_![drawable, retain];
             msg_send_![self.command_buffer.unwrap(), presentDrawable: drawable];
             msg_send_![self.command_buffer.unwrap(), commit];
             msg_send_![self.command_buffer.unwrap(), waitUntilCompleted];
@@ -1466,8 +1436,41 @@ impl RenderingBackend for MetalContext {
         self.current_ub_offset = 0;
         self.current_pipeline = None;
         self.command_buffer = None;
-        if (self.current_frame_index + 1) >= 3 {
-            self.current_frame_index = 0;
-        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graphics::PrimitiveType;
+
+    #[test]
+    fn primitive_types_map_to_metal() {
+        assert_eq!(
+            MTLPrimitiveType::from(PrimitiveType::Triangles),
+            MTLPrimitiveType::Triangle
+        );
+        assert_eq!(
+            MTLPrimitiveType::from(PrimitiveType::Lines),
+            MTLPrimitiveType::Line
+        );
+        assert_eq!(
+            MTLPrimitiveType::from(PrimitiveType::Points),
+            MTLPrimitiveType::Point
+        );
+    }
+
+    #[test]
+    fn index_element_sizes_map_to_metal_index_types() {
+        assert_eq!(mtl_index_type(2), MTLIndexType::UInt16);
+        assert_eq!(mtl_index_type(4), MTLIndexType::UInt32);
+    }
+
+    #[test]
+    #[should_panic(expected = "Unsupported index element size")]
+    fn eight_bit_indices_are_rejected() {
+        // Metal has no 8-bit indices; `new_buffer` refuses to record
+        // the element size, and this is the backstop at draw time.
+        mtl_index_type(1);
     }
 }

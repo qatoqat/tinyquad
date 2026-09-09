@@ -8,7 +8,7 @@
 //! pixel grid with no half-pixel seams: quad edges sit on integer pixel
 //! boundaries and the overlay projection maps one unit to one pixel.
 
-use miniquad::*;
+use tinyquad::*;
 
 const CELL: f32 = 4.0;
 const WIN_W: i32 = 800;
@@ -269,11 +269,11 @@ fn main() {
         ..Default::default()
     };
 
-    miniquad::start(conf, move || Box::new(Stage::new()));
+    tinyquad::start(conf, move || Box::new(Stage::new()));
 }
 
 mod shader {
-    use miniquad::*;
+    use tinyquad::*;
 
     #[repr(C)]
     pub struct Uniforms {

@@ -5,10 +5,8 @@
 /// Will send log calls like debug!(), warn!() and error!() to appropriate console_* call on wasm
 /// and just println! on PC.
 /// If you need better control of log messages - just dont use "log-impl" feature and use appropriate loggers from log-rs
-use std::cmp;
-
 #[repr(usize)]
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Hash, PartialOrd, Ord)]
 pub enum Level {
     /// The "error" level.
     ///
@@ -32,63 +30,25 @@ pub enum Level {
     Trace,
 }
 
-impl PartialOrd for Level {
-    #[inline]
-    fn partial_cmp(&self, other: &Level) -> Option<cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-
-    #[inline]
-    fn lt(&self, other: &Level) -> bool {
-        (*self as usize) < *other as usize
-    }
-
-    #[inline]
-    fn le(&self, other: &Level) -> bool {
-        *self as usize <= *other as usize
-    }
-
-    #[inline]
-    fn gt(&self, other: &Level) -> bool {
-        *self as usize > *other as usize
-    }
-
-    #[inline]
-    fn ge(&self, other: &Level) -> bool {
-        *self as usize >= *other as usize
-    }
-}
-
-impl Ord for Level {
-    #[inline]
-    fn cmp(&self, other: &Level) -> cmp::Ordering {
-        (*self as usize).cmp(&(*other as usize))
-    }
-}
-
 #[macro_export(local_inner_macros)]
 macro_rules! log {
     (target: $target:expr, $lvl:expr, $message:expr) => ({
         let lvl = $lvl;
-        //if lvl <= $crate::STATIC_MAX_LEVEL && lvl <= $crate::max_level() {
-            // ensure that $message is a valid format string literal
-            let _ = __log_format_args!($message);
-            $crate::log::__private_api_log_lit(
-                $message,
-                lvl,
-                &($target, __log_module_path!(), __log_file!(), __log_line!()),
-            );
-        //}
+        // ensure that $message is a valid format string literal
+        let _ = __log_format_args!($message);
+        $crate::log::__private_api_log_lit(
+            $message,
+            lvl,
+            &($target, __log_module_path!(), __log_file!(), __log_line!()),
+        )
     });
     (target: $target:expr, $lvl:expr, $($arg:tt)+) => ({
         let lvl = $lvl;
-        //if lvl <= $crate::STATIC_MAX_LEVEL && lvl <= $crate::max_level() {
-            $crate::log::__private_api_log_lit(
-                &__log_format_args!($($arg)+),
-                lvl,
-                &($target, __log_module_path!(), __log_file!(), __log_line!()),
-            );
-        //}
+        $crate::log::__private_api_log_lit(
+            &__log_format_args!($($arg)+),
+            lvl,
+            &($target, __log_module_path!(), __log_file!(), __log_line!()),
+        )
     });
     ($lvl:expr, $($arg:tt)+) => (log!(target: __log_module_path!(), $lvl, $($arg)+))
 }
@@ -145,7 +105,7 @@ macro_rules! trace {
 
 /// log-rs used `macro_export(local_inner_macros)` instead of $crate::log! to support older rustc version
 /// but actually there is an other difference - $crate::log does not support macros reexport :(
-/// so even miniquad is fine with 1.31+ rustc version, we need to use local_inner_macros as well
+/// so even tinyquad is fine with 1.31+ rustc version, we need to use local_inner_macros as well
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __log_format_args {

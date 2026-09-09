@@ -1,4 +1,6 @@
-use winapi::um::winbase::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock};
+use winapi::um::winbase::{
+    GMEM_MOVEABLE, GlobalAlloc, GlobalFree, GlobalLock, GlobalSize, GlobalUnlock,
+};
 use winapi::um::winuser::CF_UNICODETEXT;
 use winapi::um::winuser::{
     CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData,
@@ -79,6 +81,11 @@ unsafe fn set_raw_clipboard(data: *const u8, len: usize) {
         }
 
         let lock = GlobalLock(alloc_handle) as *mut u8;
+        if lock.is_null() {
+            eprintln!("Failed to set clipboard: memory not locked");
+            GlobalFree(alloc_handle);
+            return;
+        }
         ptr::copy_nonoverlapping(data, lock, len);
 
         GlobalUnlock(lock as _);

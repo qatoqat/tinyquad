@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 #[cfg(not(target_os = "android"))]
 use std::sync::mpsc;
 
@@ -11,6 +9,9 @@ pub(crate) struct DroppedFiles {
 pub(crate) struct NativeDisplayData {
     pub screen_width: i32,
     pub screen_height: i32,
+    /// Only windows/x11 populate and read this (see
+    /// `window::get_window_position`).
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     pub screen_position: (u32, u32),
     pub dpi_scale: f32,
     pub high_dpi: bool,
@@ -47,6 +48,7 @@ impl NativeDisplayData {
         NativeDisplayData {
             screen_width,
             screen_height,
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             screen_position: (0, 0),
             dpi_scale: 1.,
             high_dpi: false,
@@ -67,6 +69,9 @@ impl NativeDisplayData {
 }
 
 #[derive(Debug)]
+// Some payloads are only read by a subset of the platform backends,
+// which the compiler can't see all at once.
+#[allow(dead_code)]
 pub(crate) enum Request {
     ScheduleUpdate,
     SetCursorGrab(bool),
@@ -86,6 +91,12 @@ pub trait Clipboard: Send + Sync {
 }
 
 pub mod module;
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+pub mod fbconfig;
+
+#[cfg(target_os = "linux")]
+pub mod keycodes;
 
 #[cfg(target_os = "linux")]
 pub mod linux_x11;
@@ -124,5 +135,3 @@ pub mod gl;
 
 #[cfg(target_arch = "wasm32")]
 pub use wasm::webgl as gl;
-
-pub mod query_stab;
