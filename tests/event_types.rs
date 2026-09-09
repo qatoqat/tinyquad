@@ -1,10 +1,10 @@
 //! Tests for the event-handling data types.
 //!
 //! The keycode discriminants are part of the cross-platform event contract:
-//! native backends build [`miniquad::KeyCode`] values from raw platform scancodes
+//! native backends build [`tinyquad::KeyCode`] values from raw platform scancodes
 //! (X11 keysyms here), so the numeric values must stay stable.
 
-use miniquad::*;
+use tinyquad::*;
 
 #[test]
 fn keycodes_use_x11_keysym_values() {

@@ -1,4 +1,4 @@
-//! Keysym -> Miniquad `KeyCode` table shared by the X11 and Wayland
+//! Keysym -> Tinyquad `KeyCode` table shared by the X11 and Wayland
 //! backends (X11 keysyms and `xkb` keysyms are the same keysym space).
 //! Constants are from xkbcommon/xkbcommon-keysyms.h.
 

@@ -1,6 +1,6 @@
 //! Android build of the classic triangle example.
 //!
-//! Android apps built with miniquad are shared libraries loaded by the Java
+//! Android apps built with tinyquad are shared libraries loaded by the Java
 //! activity through `System.loadLibrary` (see `java/MainActivity.java`), so
 //! this example has no `main` - it is declared as a `cdylib` in Cargo.toml
 //! and exports the `quad_main` symbol the activity calls through JNI once
@@ -8,7 +8,7 @@
 //!
 //! Build an installable APK with `extras/android/build_apk.sh`.
 
-use miniquad::*;
+use tinyquad::*;
 
 #[repr(C)]
 struct Vertex {
@@ -99,15 +99,15 @@ impl EventHandler for Stage {
     }
 }
 
-/// Called by miniquad's Java activity (`MainActivity.onCreate` -> JNI) after
+/// Called by tinyquad's Java activity (`MainActivity.onCreate` -> JNI) after
 /// the app surface exists. Mirrors `src/native/android/mod_inject.rs`.
 #[unsafe(no_mangle)]
 pub extern "C" fn quad_main() {
-    miniquad::start(conf::Conf::default(), move || Box::new(Stage::new()));
+    tinyquad::start(conf::Conf::default(), move || Box::new(Stage::new()));
 }
 
 mod shader {
-    use miniquad::*;
+    use tinyquad::*;
 
     pub const VERTEX: &str = r#"#version 100
     attribute vec2 in_pos;

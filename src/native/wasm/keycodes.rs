@@ -1,4 +1,4 @@
-//! Translation of JS key/mouse codes to miniquads'
+//! Translation of JS key/mouse codes to tinyquads'
 //! TODO: JS can send better, more easy to use data and most of this file should
 //! go away.
 

@@ -12,7 +12,7 @@
 //! across the floor and watch the shadow rays re-cast.
 
 use glam::{Mat4, Vec3};
-use miniquad::*;
+use tinyquad::*;
 
 /// Internal render resolution; upscaled 4x to the 800x600 window.
 const RW: usize = 200;
@@ -604,11 +604,11 @@ fn main() {
         ..Default::default()
     };
 
-    miniquad::start(conf, move || Box::new(Stage::new()));
+    tinyquad::start(conf, move || Box::new(Stage::new()));
 }
 
 mod shader {
-    use miniquad::*;
+    use tinyquad::*;
 
     #[repr(C)]
     pub struct Uniforms {
@@ -679,7 +679,7 @@ mod shader {
 }
 
 mod blit_shader {
-    use miniquad::*;
+    use tinyquad::*;
 
     pub const BLIT_VERTEX: &str = r#"#version 100
     attribute vec3 in_pos;

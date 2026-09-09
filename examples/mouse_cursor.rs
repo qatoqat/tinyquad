@@ -1,4 +1,4 @@
-use miniquad::*;
+use tinyquad::*;
 
 struct Stage {}
 
@@ -34,5 +34,5 @@ impl EventHandler for Stage {
 }
 
 fn main() {
-    miniquad::start(conf::Conf::default(), || Box::new(Stage {}));
+    tinyquad::start(conf::Conf::default(), || Box::new(Stage {}));
 }

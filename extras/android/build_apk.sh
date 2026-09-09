@@ -57,7 +57,7 @@ LINKER="${LINKER_PREFIX}${API}-clang"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 STAGING="${REPO_ROOT}/target/android/staging"
 : "${APK_OUT:=${REPO_ROOT}/target/android/quad_android.apk}"
-PACKAGE="org.miniquad.example"
+PACKAGE="org.tinyquad.example"
 LIBRARY_NAME="quad_android"
 
 rm -rf "${STAGING}"

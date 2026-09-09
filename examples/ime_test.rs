@@ -8,9 +8,9 @@
 //! Click on an input box to focus it, then type with your IME.
 
 use fontdue::{Font, FontSettings};
-use miniquad::*;
 use std::collections::HashMap;
 use std::io::Write;
+use tinyquad::*;
 
 // Use Windows system font for Chinese support
 #[cfg(target_os = "windows")]
@@ -375,7 +375,7 @@ impl Stage {
             let b = &self.boxes[i];
             let x = (b.cursor_x(&mut self.tr) * self.dpi) as i32;
             let y = ((b.y + b.h) * self.dpi) as i32;
-            // Use miniquad's built-in IME position API
+            // Use tinyquad's built-in IME position API
             window::set_ime_position(x, y);
         }
     }
@@ -668,7 +668,7 @@ const TEXT_FS: &str = "#version 100\nprecision mediump float; varying lowp vec2 
 // ============================================================================
 
 fn main() {
-    miniquad::start(
+    tinyquad::start(
         conf::Conf {
             window_title: "IME Test - Chinese Input".into(),
             window_width: 640,

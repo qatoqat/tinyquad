@@ -14,7 +14,7 @@
 //! orientation, like the one Blender draws.
 
 use glam::{Mat4, Vec3, Vec4};
-use miniquad::*;
+use tinyquad::*;
 
 const GRID_EXTENT: f32 = 3.0;
 const GRID_COLOR: [f32; 4] = [0.30, 0.30, 0.30, 1.0];
@@ -636,7 +636,7 @@ impl EventHandler for Stage {
 }
 
 fn main() {
-    miniquad::start(conf::Conf::default(), move || Box::new(Stage::new()));
+    tinyquad::start(conf::Conf::default(), move || Box::new(Stage::new()));
 }
 
 /// View matrix for a right-handed, Z-up Cartesian world.
@@ -665,7 +665,7 @@ fn view_matrix(eye: Vec3, target: Vec3) -> Mat4 {
 }
 
 mod shader {
-    use miniquad::*;
+    use tinyquad::*;
 
     #[repr(C)]
     pub struct Uniforms {

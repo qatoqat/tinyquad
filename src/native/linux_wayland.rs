@@ -230,7 +230,7 @@ impl Default for RepeatInfo {
 struct KeyboardContext {
     enter_serial: Option<core::ffi::c_uint>,
     repeat_info: RepeatInfo,
-    /// This is the actual key being sent by Wayland, not `keysym` or Miniquad `Keycode`
+    /// This is the actual key being sent by Wayland, not `keysym` or Tinyquad `Keycode`
     repeated_key: Option<core::ffi::c_uint>,
     timerfd: core::ffi::c_int,
 }
@@ -306,7 +306,7 @@ impl KeyboardContext {
         unsafe {
             let keymods = keymap.get_keymods(libxkb, xkb_state);
 
-            // The keycodes in Miniquad are obtained without modifiers
+            // The keycodes in Tinyquad are obtained without modifiers
             let keysym = libxkb.keymap_key_get_sym_without_mod(keymap.xkb_keymap, key + 8);
             let keycode = keycodes::translate_keysym(keysym);
             events.push(WaylandEvent::KeyDown(keycode, keymods, repeat));
@@ -795,7 +795,7 @@ unsafe extern "C" fn pointer_handle_axis(
         // https://wayland-book.com/seat/pointer.html
         if axis == 0 {
             // Vertical scroll
-            // Wayland defines the direction differently to miniquad so lets flip it
+            // Wayland defines the direction differently to tinyquad so lets flip it
             value = -value;
             display.events.push(WaylandEvent::PointerAxis(0.0, value));
         } else if axis == 1 {

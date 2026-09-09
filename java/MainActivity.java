@@ -33,7 +33,7 @@ import android.widget.LinearLayout;
 
 import quad_native.QuadNative;
 
-// note: //% is a special miniquad's pre-processor for plugins
+// note: //% is a special tinyquad's pre-processor for plugins
 // when there are no plugins - //% whatever will be replaced to an empty string
 // before compiling
 

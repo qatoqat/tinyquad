@@ -1,4 +1,4 @@
-use miniquad::*;
+use tinyquad::*;
 
 use glam::{Mat4, vec3};
 
@@ -263,11 +263,11 @@ impl EventHandler for Stage {
 }
 
 fn main() {
-    miniquad::start(conf::Conf::default(), || Box::new(Stage::new()));
+    tinyquad::start(conf::Conf::default(), || Box::new(Stage::new()));
 }
 
 mod post_processing_shader {
-    use miniquad::*;
+    use tinyquad::*;
 
     pub const VERTEX: &str = r#"#version 100
     attribute vec2 pos;
@@ -322,7 +322,7 @@ mod post_processing_shader {
 }
 
 mod offscreen_shader {
-    use miniquad::*;
+    use tinyquad::*;
 
     pub const VERTEX: &str = r#"#version 100
     attribute vec4 pos;

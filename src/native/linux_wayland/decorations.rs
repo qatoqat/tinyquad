@@ -73,7 +73,7 @@ impl Decorations {
                     ServerWithLibDecorFallback => {
                         Decorations::try_libdecor(display, conf.window_resizable)
                     }
-                    ServerWithMiniquadFallback => Decorations::fallback(display),
+                    ServerWithTinyquadFallback => Decorations::fallback(display),
                 }
             }
         }

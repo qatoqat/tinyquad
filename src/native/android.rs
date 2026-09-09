@@ -32,7 +32,7 @@ unsafe extern "C" {
     fn quad_main();
 }
 
-/// Short recap on how miniquad on Android works
+/// Short recap on how tinyquad on Android works
 /// There is a MainActivity, a normal Java activity
 /// It creates a View and pass a reference to a view to rust.
 /// Rust spawn a thread that render things into this view as often as
@@ -308,7 +308,7 @@ impl MainThreadState {
 ///
 /// BUT! there is no DetachCurrentThread call right now, this code:
 /// `thread::spawn(|| attach_jni_env());` will lead to internal jni crash :/
-/// thread::spawn(|| { attach_jni_env(); loop {} }); is basically what miniquad
+/// thread::spawn(|| { attach_jni_env(); loop {} }); is basically what tinyquad
 /// is doing. this is not correct, but works
 /// TODO: the problem here -
 /// TODO:   thread::spawn(|| { Attach(); .. Detach() }); will not work as well.

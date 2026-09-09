@@ -737,7 +737,7 @@ fn define_textfield_dlg() -> *const Class {
     let mut decl = ClassDecl::new("NSTexfieldDlg", superclass).unwrap();
 
     // those 3 callbacks are for resizing the canvas when keyboard is opened
-    // which is not currenlty supported by miniquad
+    // which is not currenlty supported by tinyquad
     extern "C" fn keyboard_was_shown(_: &Object, _: Sel, _notif: ObjcId) {}
     extern "C" fn keyboard_will_be_hidden(_: &Object, _: Sel, _notif: ObjcId) {}
     extern "C" fn keyboard_did_change_frame(_: &Object, _: Sel, _notif: ObjcId) {}
@@ -878,7 +878,7 @@ where
         }));
 
         let argc = 1;
-        let mut argv = b"Miniquad\0" as *const u8 as *mut i8;
+        let mut argv = b"Tinyquad\0" as *const u8 as *mut i8;
 
         let class: ObjcId = msg_send!(define_app_delegate(), class);
         let class_string = frameworks::NSStringFromClass(class as _);

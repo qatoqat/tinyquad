@@ -6,9 +6,9 @@
 //!   - We feed this to `xkb` to get a `keysym` of type `xkb_keysym_t`
 //!     - The `keysym` can be modifier-dependent: `Shift + Key1` can be translated to either `Key1`
 //!       (without modifier) or `Exclam` (with modifier)
-//!   - We then feed the `keysym` to `translate_keysym` to get a Miniquad `Keycode`
+//!   - We then feed the `keysym` to `translate_keysym` to get a Tinyquad `Keycode`
 //!
-//! Note that the default Miniquad behavior is without modifier; there is not even a Keycode for
+//! Note that the default Tinyquad behavior is without modifier; there is not even a Keycode for
 //! `Exclam`. So we must provide the unmodified `keysym` or we will get a `Keycode::Unknown`.
 //!
 //! On the other hand, the modified `keysym` is useful when we want to translate it into the

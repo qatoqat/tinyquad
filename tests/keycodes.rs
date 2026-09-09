@@ -6,8 +6,8 @@
 
 #![cfg(target_os = "linux")]
 
-use miniquad::KeyCode;
-use miniquad::native::keycodes::translate_keysym;
+use tinyquad::KeyCode;
+use tinyquad::native::keycodes::translate_keysym;
 
 /// (keysym, expected KeyCode) — the full pre-merge X11 table.
 const X11_GOLDEN: &[(u32, KeyCode)] = &[
