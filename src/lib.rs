@@ -112,7 +112,7 @@ fn set_or_replace_display(display: native::NativeDisplayData) {
 fn native_display() -> &'static Mutex<native::NativeDisplayData> {
     NATIVE_DISPLAY
         .get()
-        .expect("Backend has not initialized NATIVE_DISPLAY yet.") //|| Mutex::new(Default::default()))
+        .expect("Backend has not initialized NATIVE_DISPLAY yet.")
 }
 
 /// Window and associated to window rendering context related functions.
@@ -368,7 +368,7 @@ pub mod window {
     }
 
     /// Show/hide onscreen keyboard.
-    /// Only works on Android right now.
+    /// Works on Android and iOS.
     pub fn show_keyboard(show: bool) {
         let d = native_display().lock().unwrap();
         #[cfg(target_os = "android")]

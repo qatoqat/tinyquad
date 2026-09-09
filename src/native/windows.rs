@@ -466,40 +466,23 @@ unsafe extern "system" fn win32_wndproc(
                     return 1;
                 }
             }
-            WM_LBUTTONDOWN => {
-                let mouse_x = payload.mouse_x;
-                let mouse_y = payload.mouse_y;
-                event_handler.mouse_button_down_event(MouseButton::Left, mouse_x, mouse_y);
+            WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN => {
+                let (mouse_x, mouse_y) = (payload.mouse_x, payload.mouse_y);
+                let button = match umsg {
+                    WM_LBUTTONDOWN => MouseButton::Left,
+                    WM_RBUTTONDOWN => MouseButton::Right,
+                    _ => MouseButton::Middle,
+                };
+                event_handler.mouse_button_down_event(button, mouse_x, mouse_y);
             }
-            WM_RBUTTONDOWN => {
-                let mouse_x = payload.mouse_x;
-                let mouse_y = payload.mouse_y;
-
-                event_handler.mouse_button_down_event(MouseButton::Right, mouse_x, mouse_y);
-            }
-            WM_MBUTTONDOWN => {
-                let mouse_x = payload.mouse_x;
-                let mouse_y = payload.mouse_y;
-
-                event_handler.mouse_button_down_event(MouseButton::Middle, mouse_x, mouse_y);
-            }
-            WM_LBUTTONUP => {
-                let mouse_x = payload.mouse_x;
-                let mouse_y = payload.mouse_y;
-
-                event_handler.mouse_button_up_event(MouseButton::Left, mouse_x, mouse_y);
-            }
-            WM_RBUTTONUP => {
-                let mouse_x = payload.mouse_x;
-                let mouse_y = payload.mouse_y;
-
-                event_handler.mouse_button_up_event(MouseButton::Right, mouse_x, mouse_y);
-            }
-            WM_MBUTTONUP => {
-                let mouse_x = payload.mouse_x;
-                let mouse_y = payload.mouse_y;
-
-                event_handler.mouse_button_up_event(MouseButton::Middle, mouse_x, mouse_y);
+            WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP => {
+                let (mouse_x, mouse_y) = (payload.mouse_x, payload.mouse_y);
+                let button = match umsg {
+                    WM_LBUTTONUP => MouseButton::Left,
+                    WM_RBUTTONUP => MouseButton::Right,
+                    _ => MouseButton::Middle,
+                };
+                event_handler.mouse_button_up_event(button, mouse_x, mouse_y);
             }
 
             WM_MOUSEMOVE => {
@@ -777,8 +760,10 @@ unsafe extern "system" fn win32_wndproc(
                             let path = path.assume_init();
                             PathBuf::from(OsString::from_wide(&path[0..path_len]))
                         };
-                        d.dropped_files.bytes.push(std::fs::read(&path).unwrap());
-                        d.dropped_files.paths.push(path);
+                        if let Ok(bytes) = std::fs::read(&path) {
+                            d.dropped_files.bytes.push(bytes);
+                            d.dropped_files.paths.push(path);
+                        }
                     }
                 }
             }

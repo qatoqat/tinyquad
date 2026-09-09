@@ -2,7 +2,6 @@
 // Copy-pasted from https://github.com/makepad/makepad/blob/live/platform/src/platform/apple/apple_utils.rs
 // and slightly modified
 
-#![allow(dead_code)]
 // Helpers around ObjC message sends (`msg_send!`) take `ObjcId` raw pointers;
 // callers are the platform event loops that already run inside `unsafe` blocks.
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -56,82 +55,36 @@ pub fn load_undocumented_cursor(cursor_name: &str) -> ObjcId {
     }
 }
 
-pub unsafe fn ccfstr_from_str(inp: &str) -> CFStringRef {
+/// `dlsym` a GL symbol out of one of Apple's OpenGL frameworks.
+/// Only one framework gets loaded per process, so the handle is
+/// cached in a single static.
+pub unsafe fn get_proc_address_from(
+    framework: &'static core::ffi::CStr,
+    name: *const u8,
+) -> Option<unsafe extern "C" fn()> {
     unsafe {
-        let null = format!("{}\0", inp);
-        __CFStringMakeConstantString(null.as_ptr() as *const ::core::ffi::c_char)
-    }
-}
+        mod libc {
+            use std::ffi::{c_char, c_int, c_void};
 
-pub unsafe fn cfstring_ref_to_string(cfstring: CFStringRef) -> String {
-    unsafe {
-        let length = CFStringGetLength(cfstring);
-        let range = CFRange {
-            location: 0,
-            length,
-        };
-        let mut num_bytes = 0u64;
-        let converted = CFStringGetBytes(
-            cfstring,
-            range,
-            kCFStringEncodingUTF8,
-            0,
-            false,
-            std::ptr::null_mut::<u8>(),
-            0,
-            &mut num_bytes,
-        );
-        if converted == 0 || num_bytes == 0 {
-            return String::new();
+            pub const RTLD_LAZY: c_int = 1;
+            unsafe extern "C" {
+                pub fn dlopen(filename: *const c_char, flag: c_int) -> *mut c_void;
+                pub fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+            }
         }
-        let mut buffer = vec![0u8; num_bytes as usize];
-        CFStringGetBytes(
-            cfstring,
-            range,
-            kCFStringEncodingUTF8,
-            0,
-            false,
-            buffer.as_mut_ptr(),
-            num_bytes,
-            std::ptr::null_mut::<u64>(),
-        );
-        String::from_utf8(buffer).unwrap_or_default()
-    }
-}
+        static mut OPENGL: *mut std::ffi::c_void = std::ptr::null_mut();
 
-pub fn load_webkit_cursor(cursor_name_str: &str) -> ObjcId {
-    unsafe {
-        static CURSOR_ROOT: &str = "/System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/HIServices.framework/Versions/A/Resources/cursors";
-        let cursor_root = str_to_nsstring(CURSOR_ROOT);
-        let cursor_name = str_to_nsstring(cursor_name_str);
-        let cursor_pdf = str_to_nsstring("cursor.pdf");
-        let cursor_plist = str_to_nsstring("info.plist");
-        let key_x = str_to_nsstring("hotx");
-        let key_y = str_to_nsstring("hoty");
+        if OPENGL.is_null() {
+            OPENGL = libc::dlopen(framework.as_ptr() as _, libc::RTLD_LAZY);
+        }
 
-        let cursor_path: ObjcId =
-            msg_send![cursor_root, stringByAppendingPathComponent: cursor_name];
-        let pdf_path: ObjcId = msg_send![cursor_path, stringByAppendingPathComponent: cursor_pdf];
-        let info_path: ObjcId =
-            msg_send![cursor_path, stringByAppendingPathComponent: cursor_plist];
+        assert!(!OPENGL.is_null());
 
-        let ns_image: ObjcId = msg_send![class!(NSImage), alloc];
-        let () = msg_send![ns_image, initByReferencingFile: pdf_path];
-        let info: ObjcId = msg_send![
-            class!(NSDictionary),
-            dictionaryWithContentsOfFile: info_path
-        ];
-        //let image = NSImage::alloc(nil).initByReferencingFile_(pdf_path);
-        // let info = NSDictionary::dictionaryWithContentsOfFile_(nil, info_path);
-
-        let x: ObjcId = msg_send![info, valueForKey: key_x]; //info.valueForKey_(key_x);
-        let y: ObjcId = msg_send![info, valueForKey: key_y]; //info.valueForKey_(key_y);
-        let point = NSPoint {
-            x: msg_send![x, doubleValue],
-            y: msg_send![y, doubleValue],
-        };
-        let cursor: ObjcId = msg_send![class!(NSCursor), alloc];
-        msg_send![cursor, initWithImage: ns_image hotSpot: point]
+        let symbol = libc::dlsym(OPENGL, name as _);
+        if symbol.is_null() {
+            return None;
+        }
+        Some(std::mem::transmute_copy(&symbol))
     }
 }
 
@@ -300,131 +253,6 @@ pub fn get_event_keycode(event: ObjcId) -> Option<KeyCode> {
     })
 }
 
-pub fn keycode_to_menu_key(keycode: KeyCode, shift: bool) -> &'static str {
-    if !shift {
-        match keycode {
-            KeyCode::GraveAccent => "`",
-            KeyCode::Apostrophe => "'",
-            KeyCode::Key0 => "0",
-            KeyCode::Key1 => "1",
-            KeyCode::Key2 => "2",
-            KeyCode::Key3 => "3",
-            KeyCode::Key4 => "4",
-            KeyCode::Key5 => "5",
-            KeyCode::Key6 => "6",
-            KeyCode::Key7 => "7",
-            KeyCode::Key8 => "8",
-            KeyCode::Key9 => "9",
-            KeyCode::Minus => "-",
-            KeyCode::Equal => "=",
-
-            KeyCode::Q => "q",
-            KeyCode::W => "w",
-            KeyCode::E => "e",
-            KeyCode::R => "r",
-            KeyCode::T => "t",
-            KeyCode::Y => "y",
-            KeyCode::U => "u",
-            KeyCode::I => "i",
-            KeyCode::O => "o",
-            KeyCode::P => "p",
-            KeyCode::LeftBracket => "[",
-            KeyCode::RightBracket => "]",
-
-            KeyCode::A => "a",
-            KeyCode::S => "s",
-            KeyCode::D => "d",
-            KeyCode::F => "f",
-            KeyCode::G => "g",
-            KeyCode::H => "h",
-            KeyCode::J => "j",
-            KeyCode::K => "l",
-            KeyCode::L => "l",
-            KeyCode::Semicolon => ";",
-            KeyCode::Backslash => "\\",
-
-            KeyCode::Z => "z",
-            KeyCode::X => "x",
-            KeyCode::C => "c",
-            KeyCode::V => "v",
-            KeyCode::B => "b",
-            KeyCode::N => "n",
-            KeyCode::M => "m",
-            KeyCode::Comma => ",",
-            KeyCode::Period => ".",
-            KeyCode::Slash => "/",
-            _ => "",
-        }
-    } else {
-        match keycode {
-            KeyCode::GraveAccent => "~",
-            KeyCode::Apostrophe => "\"",
-            KeyCode::Key0 => ")",
-            KeyCode::Key1 => "!",
-            KeyCode::Key2 => "@",
-            KeyCode::Key3 => "#",
-            KeyCode::Key4 => "$",
-            KeyCode::Key5 => "%",
-            KeyCode::Key6 => "^",
-            KeyCode::Key7 => "&",
-            KeyCode::Key8 => "*",
-            KeyCode::Key9 => "(",
-            KeyCode::Minus => "_",
-            KeyCode::Equal => "+",
-
-            KeyCode::Q => "Q",
-            KeyCode::W => "W",
-            KeyCode::E => "E",
-            KeyCode::R => "R",
-            KeyCode::T => "T",
-            KeyCode::Y => "Y",
-            KeyCode::U => "U",
-            KeyCode::I => "I",
-            KeyCode::O => "O",
-            KeyCode::P => "P",
-            KeyCode::LeftBracket => "{",
-            KeyCode::RightBracket => "}",
-
-            KeyCode::A => "A",
-            KeyCode::S => "S",
-            KeyCode::D => "D",
-            KeyCode::F => "F",
-            KeyCode::G => "G",
-            KeyCode::H => "H",
-            KeyCode::J => "J",
-            KeyCode::K => "K",
-            KeyCode::L => "L",
-            KeyCode::Semicolon => ":",
-            KeyCode::Slash => "?",
-            KeyCode::Backslash => "|",
-
-            KeyCode::Z => "Z",
-            KeyCode::X => "X",
-            KeyCode::C => "C",
-            KeyCode::V => "V",
-            KeyCode::B => "B",
-            KeyCode::N => "N",
-            KeyCode::M => "M",
-            KeyCode::Comma => "<",
-            KeyCode::Period => ">",
-            _ => "",
-        }
-    }
-}
-
-pub unsafe fn superclass(this: &Object) -> &Class {
-    unsafe {
-        let superclass: ObjcId = msg_send![this, superclass];
-        &*(superclass as *const _)
-    }
-}
-
-#[cfg(target_os = "macos")]
-pub fn bottom_left_to_top_left(rect: NSRect) -> f64 {
-    let height = unsafe { CGDisplayPixelsHigh(CGMainDisplayID()) };
-    height as f64 - (rect.origin.y + rect.size.height)
-}
-
 pub fn load_mouse_cursor(cursor: CursorIcon) -> ObjcId {
     match cursor {
         CursorIcon::Default => load_native_cursor("arrowCursor"),
@@ -453,111 +281,8 @@ pub fn load_mouse_cursor(cursor: CursorIcon) -> ObjcId {
         // Unfortunately undocumented cursors requires NSTracking areas that
         // we do not use yet.
         _ => load_native_cursor("arrowCursor"),
-        // CursorIcon::Help => load_undocumented_cursor("_helpCursor"),
-        // //CursorIcon::ZoomIn => load_undocumented_cursor("_zoomInCursor"),
-        // //CursorIcon::ZoomOut => load_undocumented_cursor("_zoomOutCursor"),
-
-        // // While these are available, the former just loads a white arrow,
-        // // and the latter loads an ugly deflated beachball!
-        // // CursorIcon::Move => Cursor::Undocumented("_moveCursor"),
-        // // CursorIcon::Wait => Cursor::Undocumented("_waitCursor"),
-        // // An even more undocumented cursor...
-        // // https://bugs.eclipse.org/bugs/show_bug.cgi?id=522349
-        // // This is the wrong semantics for `Wait`, but it's the same as
-        // // what's used in Safari and Chrome.
-        // CursorIcon::Wait/* | CursorIcon::Progress*/ => load_undocumented_cursor("busyButClickableCursor"),
-
-        // // For the rest, we can just snatch the cursors from WebKit...
-        // // They fit the style of the native cursors, and will seem
-        // // completely standard to macOS users.
-        // // https://stackoverflow.com/a/21786835/5435443
-        // CursorIcon::Move /*| CursorIcon::AllScroll*/ => load_webkit_cursor("move"),
-        // CursorIcon::Cell => load_webkit_cursor("cell"),
     }
 }
-
-// macro_rules!objc_block {
-//     (move | $ ( $ arg_ident: ident: $ arg_ty: ty), * | $ (: $ return_ty: ty) ? $ body: block) => {
-//         {
-//             #[repr(C)]
-//             struct BlockDescriptor {
-//                 reserved: core::ffi::c_ulong,
-//                 size: core::ffi::c_ulong,
-//                 copy_helper: extern "C" fn(*mut core::ffi::c_void, *const core::ffi::c_void),
-//                 dispose_helper: extern "C" fn(*mut core::ffi::c_void),
-//             }
-
-//             static DESCRIPTOR: BlockDescriptor = BlockDescriptor {
-//                 reserved: 0,
-//                 size: mem::size_of::<BlockLiteral>() as core::ffi::c_ulong,
-//                 copy_helper,
-//                 dispose_helper,
-//             };
-
-//             #[allow(unused_unsafe)]
-//             extern "C" fn copy_helper(dst: *mut core::ffi::c_void, src: *const core::ffi::c_void) {
-//                 unsafe {
-//                     ptr::write(
-//                         &mut (*(dst as *mut BlockLiteral)).inner as *mut _,
-//                         (&*(src as *const BlockLiteral)).inner.clone()
-//                     );
-//                 }
-//             }
-
-//             #[allow(unused_unsafe)]
-//             extern "C" fn dispose_helper(src: *mut core::ffi::c_void) {
-//                 unsafe {
-//                     ptr::drop_in_place(src as *mut BlockLiteral);
-//                 }
-//             }
-
-//             #[allow(unused_unsafe)]
-//             extern "C" fn invoke(literal: *mut BlockLiteral, $ ( $ arg_ident: $ arg_ty), *) $ ( -> $ return_ty) ? {
-//                 let literal = unsafe {&mut *literal};
-//                 literal.inner.lock().unwrap()( $ ( $ arg_ident), *)
-//             }
-
-//             #[repr(C)]
-//             struct BlockLiteral {
-//                 isa: *const core::ffi::c_void,
-//                 flags: core::ffi::c_int,
-//                 reserved: core::ffi::c_int,
-//                 invoke: extern "C" fn(*mut BlockLiteral, $ ( $ arg_ty), *) $ ( -> $ return_ty) ?,
-//                 descriptor: *const BlockDescriptor,
-//                 inner: ::std::sync::Arc<::std::sync::Mutex<dyn Fn( $ ( $ arg_ty), *) $ ( -> $ return_ty) ? >>,
-//             }
-
-//             #[allow(unused_unsafe)]
-//             BlockLiteral {
-//                 isa: unsafe {_NSConcreteStackBlock.as_ptr() as *const core::ffi::c_void},
-//                 flags: 1 << 25,
-//                 reserved: 0,
-//                 invoke,
-//                 descriptor: &DESCRIPTOR,
-//                 inner: ::std::sync::Arc::new(::std::sync::Mutex::new(move | $ ( $ arg_ident: $ arg_ty), * | {
-//                     $ body
-//                 }))
-//             }
-//         }
-//     }
-// }
-
-// macro_rules!objc_block_invoke {
-//     ( $ inp: expr, invoke ( $ ( ($ arg_ident: expr): $ arg_ty: ty), *) $ ( -> $ return_ty: ty) ?) => {
-//         {
-//             #[repr(C)]
-//             struct BlockLiteral {
-//                 isa: *const core::ffi::c_void,
-//                 flags: core::ffi::c_int,
-//                 reserved: core::ffi::c_int,
-//                 invoke: extern "C" fn(*mut BlockLiteral, $ ( $ arg_ty), *) $ ( -> $ return_ty) ?,
-//             }
-
-//             let block: &mut BlockLiteral = &mut *( $ inp as *mut _);
-//             (block.invoke)(block, $ ( $ arg_ident), *)
-//         }
-//     }
-// }
 
 macro_rules! msg_send_ {
     ($obj:expr, $name:ident) => ({

@@ -1205,10 +1205,12 @@ impl RenderingBackend for GlContext {
             ..
         } in attributes
         {
-            let layout = buffer_layout.get(*buffer_index).unwrap_or_else(|| panic!());
+            let layout = buffer_layout
+                .get(*buffer_index)
+                .expect("buffer_index out of range");
             let cache = buffer_cache
                 .get_mut(*buffer_index)
-                .unwrap_or_else(|| panic!());
+                .expect("buffer_index out of range");
 
             if layout.stride == 0 {
                 cache.stride += format.size_bytes();
@@ -1240,8 +1242,10 @@ impl RenderingBackend for GlContext {
         {
             let buffer_data = &mut buffer_cache
                 .get_mut(*buffer_index)
-                .unwrap_or_else(|| panic!());
-            let layout = buffer_layout.get(*buffer_index).unwrap_or_else(|| panic!());
+                .expect("buffer_index out of range");
+            let layout = buffer_layout
+                .get(*buffer_index)
+                .expect("buffer_index out of range");
 
             let cname = CString::new(*name).unwrap_or_else(|e| panic!("{}", e));
             let attr_loc = unsafe { glGetAttribLocation(program, cname.as_ptr() as *const _) };

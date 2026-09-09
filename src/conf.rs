@@ -272,34 +272,16 @@ impl std::fmt::Debug for Icon {
 }
 
 // reasonable defaults for PC and mobiles are slightly different
-#[cfg(not(target_os = "android"))]
 impl Default for Conf {
     fn default() -> Conf {
         Conf {
             window_title: "".to_owned(),
             window_width: 800,
             window_height: 600,
-            high_dpi: false,
-            fullscreen: false,
+            high_dpi: cfg!(target_os = "android"),
+            fullscreen: cfg!(target_os = "android"),
             sample_count: 1,
-            window_resizable: true,
-            icon: Some(Icon::miniquad_logo()),
-            platform: Default::default(),
-        }
-    }
-}
-
-#[cfg(target_os = "android")]
-impl Default for Conf {
-    fn default() -> Conf {
-        Conf {
-            window_title: "".to_owned(),
-            window_width: 800,
-            window_height: 600,
-            high_dpi: true,
-            fullscreen: true, //
-            sample_count: 1,
-            window_resizable: false, //
+            window_resizable: !cfg!(target_os = "android"),
             icon: Some(Icon::miniquad_logo()),
             platform: Default::default(),
         }

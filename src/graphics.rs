@@ -1,10 +1,6 @@
-//mod texture;
-
 use crate::native::gl::*;
 
 use std::{error::Error, fmt::Display};
-
-//pub use texture::{FilterMode, TextureAccess, TextureFormat, TextureParams, TextureWrap};
 
 mod gl;
 
@@ -1173,7 +1169,7 @@ pub trait RenderingBackend {
     unsafe fn texture_raw_id(&self, texture: TextureId) -> RawId;
 
     /// Update whole texture content
-    /// bytes should be width * height * 4 size - non rgba8 textures are not supported yet anyway
+    /// bytes should be `format.size(width, height)` bytes long
     fn texture_update(&mut self, texture: TextureId, bytes: &[u8]) {
         let (width, height) = self.texture_size(texture);
         self.texture_update_part(texture, 0 as _, 0 as _, width as _, height as _, bytes)

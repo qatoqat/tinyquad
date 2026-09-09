@@ -227,24 +227,12 @@ impl MainThreadState {
                 }
             }
             Message::KeyDown { keycode } => {
-                match keycode {
-                    KeyCode::LeftShift | KeyCode::RightShift => self.keymods.shift = true,
-                    KeyCode::LeftControl | KeyCode::RightControl => self.keymods.ctrl = true,
-                    KeyCode::LeftAlt | KeyCode::RightAlt => self.keymods.alt = true,
-                    KeyCode::LeftSuper | KeyCode::RightSuper => self.keymods.logo = true,
-                    _ => {}
-                }
+                self.keymods.update(keycode, true);
                 self.event_handler
                     .key_down_event(keycode, self.keymods, false);
             }
             Message::KeyUp { keycode } => {
-                match keycode {
-                    KeyCode::LeftShift | KeyCode::RightShift => self.keymods.shift = false,
-                    KeyCode::LeftControl | KeyCode::RightControl => self.keymods.ctrl = false,
-                    KeyCode::LeftAlt | KeyCode::RightAlt => self.keymods.alt = false,
-                    KeyCode::LeftSuper | KeyCode::RightSuper => self.keymods.logo = false,
-                    _ => {}
-                }
+                self.keymods.update(keycode, false);
                 self.event_handler.key_up_event(keycode, self.keymods);
             }
             Message::Pause => self.event_handler.window_minimized_event(),
@@ -614,18 +602,13 @@ fn rx_recv<T>(
     }
 }
 
-#[unsafe(no_mangle)]
-extern "C" fn jni_on_load(vm: *mut std::ffi::c_void) {
-    unsafe {
-        VM = vm as _;
-    }
-}
-
 unsafe fn create_native_window(surface: ndk_sys::jobject) -> *mut ndk_sys::ANativeWindow {
     unsafe {
         let env = attach_jni_env();
 
-        ndk_sys::ANativeWindow_fromSurface(env, surface)
+        let window = ndk_sys::ANativeWindow_fromSurface(env, surface);
+        assert!(!window.is_null(), "ANativeWindow_fromSurface failed");
+        window
     }
 }
 
@@ -762,13 +745,6 @@ unsafe fn set_full_screen(env: *mut ndk_sys::JNIEnv, fullscreen: bool) {
     }
 }
 
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct android_asset {
-    pub content: *mut ::core::ffi::c_char,
-    pub content_length: ::core::ffi::c_int,
-}
-
 // According to documentation, AAssetManager_fromJava is as available as an
 // AAssetManager_open, which was used before
 // For some reason it is missing fron ndk_sys binding
@@ -779,7 +755,7 @@ unsafe extern "C" {
     ) -> *mut ndk_sys::AAssetManager;
 }
 
-pub(crate) unsafe fn load_asset(filepath: *const ::core::ffi::c_char, out: *mut android_asset) {
+pub(crate) unsafe fn load_asset(filepath: *const ::core::ffi::c_char) -> Option<Vec<u8>> {
     unsafe {
         let env = attach_jni_env();
 
@@ -797,16 +773,17 @@ pub(crate) unsafe fn load_asset(filepath: *const ::core::ffi::c_char, out: *mut 
         let mgr = AAssetManager_fromJava(env, asset_manager);
         let asset = ndk_sys::AAssetManager_open(mgr, filepath, ndk_sys::AASSET_MODE_BUFFER as _);
         if asset.is_null() {
-            return;
+            return None;
         }
-        let length = ndk_sys::AAsset_getLength64(asset);
-        // TODO: memory leak right here! this buffer would never freed
-        let buffer = libc::malloc(length as _);
-        if ndk_sys::AAsset_read(asset, buffer, length as _) > 0 {
-            ndk_sys::AAsset_close(asset);
-
-            (*out).content_length = length as _;
-            (*out).content = buffer as _;
+        let length = ndk_sys::AAsset_getLength64(asset) as usize;
+        let mut buffer = vec![0u8; length];
+        let read = ndk_sys::AAsset_read(asset, buffer.as_mut_ptr() as _, length as _);
+        ndk_sys::AAsset_close(asset);
+        if read > 0 {
+            buffer.truncate(read as usize);
+            Some(buffer)
+        } else {
+            None
         }
     }
 }

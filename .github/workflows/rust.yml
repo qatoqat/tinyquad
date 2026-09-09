@@ -75,6 +75,23 @@ jobs:
       - name: Run tests with log-impl
         run: cargo test --features log-impl
 
+  # The unit tests are pure logic (no window/GPU needed), so they can
+  # run on desktop runners even though the platform backends
+  # themselves need real hardware. The macOS run additionally executes
+  # the Metal backend's unit tests, which other runners only compile.
+  test-cross:
+    name: Test ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run tests
+        run: cargo test
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -87,10 +104,19 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+          targets: aarch64-apple-darwin,x86_64-pc-windows-gnu,wasm32-unknown-unknown,aarch64-linux-android
       - name: rustfmt
         run: cargo fmt --all -- --check
       - name: clippy
         run: cargo clippy --all-targets -- -D warnings
+      # `clippy` compiles only the host target by default, so platform
+      # backends (Metal, Win32, WebGL, EGL) never got linted. None of
+      # these link — check-only — so they need no SDKs or system libs.
+      - name: clippy (cross-target)
+        run: |
+          for target in aarch64-apple-darwin x86_64-pc-windows-gnu wasm32-unknown-unknown aarch64-linux-android; do
+            cargo clippy --target $target --all-targets -- -D warnings
+          done
 
   android:
     name: Android
