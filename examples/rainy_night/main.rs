@@ -1,29 +1,40 @@
-//! Rainy night: a playable cat in a flooded pixel-art street at night.
+//! Rainy night: a playable cat in pixel-art voxel worlds at night.
 //!
-//! The world is a voxel diorama (one voxel = one pixel; the cat is 24
-//! voxels long) drawn orthographically from four Fez-style side views or
-//! from straight above. Light from the street lamp, the bus-stop advert,
-//! the billboard and lit windows is traced through the voxel structure
-//! (shadows, tinted glass, dry shade under roofs); rain falls as real 3D
-//! drops, the canal and puddles ripple, boxes float, lightning flashes and
-//! thunder rolls. All sound is synthesized.
+//! Each level is a voxel diorama (one voxel = one pixel; the cat is 24
+//! voxels long) drawn orthographically from four Fez-style side views or a
+//! 3/4 view from above where tops and fronts both keep their pixel ratio.
+//! Light from lamps, neon signs and windows is traced through the voxel
+//! structure (shadows, tinted glass, dry shade under roofs); rain falls as
+//! real 3D drops, water ripples, boxes float, lightning flashes and thunder
+//! rolls. All sound is synthesized.
+//!
+//! - **The floating cafe** (start): a little island adrift in a starry sky,
+//!   a cafe under neon signs and string lights. Its door leads inside.
+//! - **The cafe**: a cut-away room (the walls facing the camera are not
+//!   drawn) with a counter, shelves, a mezzanine and a neon cat. One door
+//!   goes back out, the other into the rainy street.
+//! - **The rainy street**: a flooded block with a lamp post, a bus stop and
+//!   boxes floating in the canal.
 //!
 //! Controls:
-//! - **A / D** (or arrows): walk; in top-down view **W / S** too
+//! - **A / D** (or arrows): walk; in the 3/4 view **W / S** too
+//! - **W** (or up) in front of a door: go through it
 //! - **Space**: jump
 //! - **Shift**: sprint while moving, charge a high jump while standing
 //! - **Ctrl** (or **S** in side view): drop through the platform below
 //! - **Q / E**: rotate the camera 90 degrees
-//! - **Tab / T**: toggle top-down / side view
+//! - **Tab / T**: toggle side / 3/4 top view
 //! - **Esc**: quit (desktop)
 //!
 //! Side views play by Fez rules: anything that *looks* like a floor on
-//! screen is one, whatever its depth. The bus-stop roof and the billboard
-//! line up only when looking along Z, which is the way to the fish.
+//! screen is one, whatever its depth, and so does a door. Each level hides a
+//! fish that is only reachable by lining things up from the right side.
 
 mod audio;
 mod cat;
 mod game;
+mod level_cafe;
+mod level_street;
 mod light;
 mod model;
 mod props;
@@ -145,6 +156,7 @@ impl Stage {
         c.cat.jump_pressed = self.was_pressed(&[Space]);
         c.cat.drop_pressed = self.was_pressed(&[LeftControl, RightControl]);
         c.down_pressed = self.was_pressed(&[S, Down]);
+        c.up_pressed = self.was_pressed(&[W, Up]);
         c.rotate = i32::from(self.was_pressed(&[E])) - i32::from(self.was_pressed(&[Q]));
         c.toggle_top = self.was_pressed(&[Tab, T]);
         c
@@ -164,6 +176,7 @@ impl EventHandler for Stage {
             controls.cat.jump_pressed = false;
             controls.cat.drop_pressed = false;
             controls.down_pressed = false;
+            controls.up_pressed = false;
             controls.rotate = 0;
             controls.toggle_top = false;
             self.pressed.clear();
@@ -311,6 +324,7 @@ mod tests {
                 c.cat.jump_pressed = first && keys.contains('j');
                 c.cat.drop_pressed = first && keys.contains('c');
                 c.down_pressed = first && keys.contains('d');
+                c.up_pressed = first && keys.contains('u');
                 c.rotate = if first {
                     i32::from(keys.contains('e')) - i32::from(keys.contains('q'))
                 } else {
@@ -327,11 +341,11 @@ mod tests {
     /// when looking along Z, and take the fish.
     #[test]
     fn fez_bridge_reaches_the_fish() {
-        let mut game = Game::new();
+        let mut game = Game::starting_at(world::Level::Street);
         play(&mut game, "30:;46:r;1:j;40:;84:s;1:j;20:;30:r;40:");
         assert_eq!(
             game.cat_pos().y,
-            world::BRIDGE_TOP as f32,
+            level_street::BRIDGE_TOP as f32,
             "on the bus-stop roof"
         );
         play(&mut game, "220:r;30:");
@@ -343,22 +357,76 @@ mod tests {
     /// roof's side falls down instead.
     #[test]
     fn bridge_is_not_connected_from_the_side() {
-        let mut game = Game::new();
+        let mut game = Game::starting_at(world::Level::Street);
         play(
             &mut game,
             "30:;46:r;1:j;40:;84:s;1:j;20:;30:r;40:;1:e;60:;240:l;60:",
         );
         assert!(
-            game.cat_pos().y < world::BRIDGE_TOP as f32,
+            game.cat_pos().y < level_street::BRIDGE_TOP as f32,
             "fell off the roof"
         );
         assert!(!game.fish_taken());
     }
 
+    /// Island shortcut: the cafe's roof ridge runs onto the fish rock only
+    /// when looking along Z; from the side the rock is 50 voxels away.
+    #[test]
+    fn island_ridge_reaches_the_fish_rock() {
+        let mut game = Game::new();
+        game.teleport(glam::vec3(200.0, 126.0, 95.0));
+        play(&mut game, "30:;90:r;30:");
+        assert!(
+            game.cat_pos().z > 160.0,
+            "depth snapped onto the fish rock: {}",
+            game.debug()
+        );
+        assert!(game.fish_taken());
+
+        let mut game = Game::new();
+        game.teleport(glam::vec3(210.0, 126.0, 95.0));
+        play(&mut game, "1:e;60:;150:r;60:");
+        assert!(game.cat_pos().y < 126.0, "walked off the gable instead");
+        assert!(!game.fish_taken());
+    }
+
+    /// The doors link island -> cafe -> street -> cafe -> island, and in a
+    /// side view a door works from any depth (it only has to be on screen).
+    #[test]
+    fn doors_connect_the_levels() {
+        use world::Level::*;
+        let mut game = Game::new();
+        assert_eq!(game.level(), Island);
+        let out = game.door_exit(0);
+        game.teleport(out - glam::vec3(0.0, 0.0, 14.0)); // in front of the door, nearer the camera
+        play(&mut game, "1:u;120:");
+        assert_eq!(game.level(), Cafe);
+        game.teleport(game.door_exit(1));
+        play(&mut game, "1:u;120:");
+        assert_eq!(game.level(), Street);
+        game.teleport(game.door_exit(0));
+        play(&mut game, "1:u;120:");
+        assert_eq!(game.level(), Cafe);
+        game.teleport(game.door_exit(0));
+        play(&mut game, "1:u;120:");
+        assert_eq!(game.level(), Island);
+        assert!(game.cat_is_free());
+    }
+
     /// Mashing every key in every view never leaves the cat inside a wall.
     #[test]
     fn cat_never_ends_up_inside_solid() {
-        let mut game = Game::new();
+        for level in [
+            world::Level::Street,
+            world::Level::Island,
+            world::Level::Cafe,
+        ] {
+            stress(level);
+        }
+    }
+
+    fn stress(level: world::Level) {
+        let mut game = Game::starting_at(level);
         let mut rng = util::Rng::new(7);
         let keys = [
             "l", "r", "u", "d", "j", "s", "c", "lj", "rj", "rs", "ls", "e", "q", "t", "rsj", "",
@@ -379,11 +447,21 @@ mod tests {
     fn snapshots() {
         let dir = std::env::var("RN_SHOTS").unwrap_or_else(|_| "/tmp".into());
         let script = std::env::var("RN_SCRIPT").unwrap_or_else(|_| "60:;shot".into());
-        let mut game = Game::new();
+        let level = match std::env::var("RN_LEVEL").as_deref() {
+            Ok("street") => world::Level::Street,
+            Ok("cafe") => world::Level::Cafe,
+            _ => world::Level::Island,
+        };
+        let mut game = Game::starting_at(level);
         let mut renderer = Renderer::new();
         let mut shot = 0;
         let t0 = std::time::Instant::now();
         for cmd in script.split(';') {
+            if let Some(p) = cmd.strip_prefix("tp:") {
+                let v: Vec<f32> = p.split(',').map(|v| v.parse().unwrap()).collect();
+                game.teleport(glam::vec3(v[0], v[1], v[2]));
+                continue;
+            }
             if cmd == "bench" {
                 renderer.min_times = [f64::MAX; 7];
                 for _ in 0..40 {
@@ -430,6 +508,7 @@ mod tests {
                 c.cat.jump_pressed = first && keys.contains('j');
                 c.cat.drop_pressed = first && keys.contains('c');
                 c.down_pressed = first && keys.contains('d');
+                c.up_pressed = first && keys.contains('u');
                 c.rotate = if first {
                     i32::from(keys.contains('e')) - i32::from(keys.contains('q'))
                 } else {

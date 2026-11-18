@@ -29,10 +29,10 @@ pub struct Prop {
 }
 
 impl Prop {
-    pub fn new(kind: PropKind, x: f32, z: f32) -> Prop {
+    pub fn new(kind: PropKind, x: f32, z: f32, water_level: f32) -> Prop {
         let s = kind.size();
         let size = vec3(s[0] as f32, s[1] as f32, s[2] as f32);
-        let y = crate::world::WATER_LEVEL - size.y * kind.density();
+        let y = water_level - size.y * kind.density();
         Prop {
             kind,
             pos: vec3(x, y, z),
@@ -80,20 +80,23 @@ impl Prop {
             }
         }
         // invisible walls at the world edge
-        lo.x < 0.0 || lo.z < 0.0 || hi.x > crate::world::W as f32 || hi.z > crate::world::D as f32
+        lo.x < 0.0 || lo.z < 0.0 || hi.x > world.w as f32 || hi.z > world.d as f32
     }
 }
 
-pub fn spawn_props() -> Vec<Prop> {
-    vec![
-        Prop::new(PropKind::Pallet, 120.0, 3.0),
-        Prop::new(PropKind::Cardboard, 196.0, 4.0),
-        Prop::new(PropKind::SmallBox, 262.0, 6.0),
-        Prop::new(PropKind::Crate, 400.0, 3.0),
-        Prop::new(PropKind::Cardboard, 3.0, 120.0),
-        Prop::new(PropKind::Pallet, 300.0, 205.0),
-        Prop::new(PropKind::SmallBox, 432.0, 60.0),
-    ]
+/// The level's floating clutter, each put at its water's rest level.
+pub fn spawn_props(world: &World, water: &Water) -> Vec<Prop> {
+    world
+        .floating
+        .iter()
+        .map(|&(kind, x, z)| {
+            let [sx, _, sz] = kind.size();
+            let level = water
+                .surface(x + sx as f32 * 0.5, z + sz as f32 * 0.5)
+                .unwrap_or(world.info.ground);
+            Prop::new(kind, x, z, level)
+        })
+        .collect()
 }
 
 pub fn step(props: &mut [Prop], world: &World, water: &mut Water, rng: &mut Rng, dt: f32) {

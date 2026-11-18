@@ -20,7 +20,7 @@
 use crate::model::CatPose;
 use crate::props::{GRAVITY, Prop};
 use crate::water::Water;
-use crate::world::{D, GROUND, W, World};
+use crate::world::World;
 use glam::{Vec3, vec3};
 
 pub const HALF: f32 = 6.0;
@@ -245,8 +245,8 @@ impl Cat {
         self.animate(input, dt);
 
         // never leave the diorama
-        self.pos.x = self.pos.x.clamp(HALF, W as f32 - HALF);
-        self.pos.z = self.pos.z.clamp(HALF, D as f32 - HALF);
+        self.pos.x = self.pos.x.clamp(HALF, world.w as f32 - HALF);
+        self.pos.z = self.pos.z.clamp(HALF, world.d as f32 - HALF);
     }
 
     /// Floating props move on their own and may drift into the cat: push the
@@ -374,7 +374,7 @@ impl Cat {
         }
 
         // drop through the platform we stand on
-        if input.drop_pressed && self.grounded() && self.pos.y > GROUND as f32 + 1.5 {
+        if input.drop_pressed && self.grounded() && self.pos.y > solids.world.info.ground + 1.5 {
             self.start_drop(solids);
         }
     }
@@ -599,7 +599,11 @@ impl Cat {
         y_hi: f32,
     ) -> Option<(f32, f32, Support)> {
         let daxis = 2 - axis;
-        let extent = if daxis == 0 { W } else { D };
+        let extent = if daxis == 0 {
+            solids.world.w
+        } else {
+            solids.world.d
+        };
         let h0 = (self.pos[axis] - HALF + EPS).floor() as i32;
         let h1 = (self.pos[axis] + HALF - EPS).ceil() as i32;
         let cur = self.pos[daxis];

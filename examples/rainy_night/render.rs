@@ -18,7 +18,7 @@ use crate::props::Prop;
 use crate::rain::{Kind, Weather};
 use crate::util::{Rgb, hash3, lerp, mix, noise3, smoothstep};
 use crate::water::Water;
-use crate::world::{D, GROUND, H, W, World};
+use crate::world::{CUT_NX, CUT_NZ, CUT_PX, CUT_PY, CUT_PZ, Sky, World};
 use glam::{Vec3, vec3};
 
 pub const SW: usize = 320;
@@ -112,10 +112,17 @@ pub struct Scene<'a> {
     pub lamp: f32,
     /// Advert / sign / window brightness, 0..1.
     pub panel: f32,
+    /// Fade to black between levels, 0..1.
+    pub fade: f32,
+    /// Changes whenever the level changes (invalidates cached images).
+    pub generation: u32,
 }
 
 /// Background ray setup for one frame (see `background_setup`).
 struct Background {
+    sky: Sky,
+    drift: f32,
+    time: f32,
     y0: f32,
     ydx: f32,
     ydy: f32,
@@ -127,6 +134,7 @@ struct Background {
 /// Per-object lighting environment for moving models.
 struct Env {
     sky: f32,
+    fill: Rgb,
     lamp: Rgb,
     other: Rgb,
     lamp_dir: Vec3,
@@ -135,7 +143,7 @@ struct Env {
 /// The static world projected once for a cardinal view; while the camera
 /// stays in that view each frame just copies the visible window out of it.
 struct WorldImage {
-    key: (i32, i32, i32),
+    key: (i32, i32, i32, u32),
     w: usize,
     h: usize,
     rmin: f32,
@@ -166,12 +174,14 @@ pub struct Renderer {
     half_tmp: Vec<Rgb>,
     bolt: Vec<bool>,
     clouds: Vec<f32>,
-    skyline: [[(i32, f32); SW]; 2],
+    skyline: [[(i32, f32, f32); SW]; 2],
     tone: Vec<f32>,
     pub rgba: Vec<u8>,
     table: [f32; 256],
     cam: Vec3,
     basis: Basis,
+    /// Interior walls facing the camera (`world::CUT_*`), skipped when drawn.
+    cut_mask: u8,
 }
 
 /// Bayer 4x4 thresholds for ordered dithering.
@@ -222,7 +232,7 @@ impl Renderer {
                     smoothstep(0.45, 0.8, n)
                 })
                 .collect(),
-            skyline: [[(0, 0.0); SW]; 2],
+            skyline: [[(0, 0.0, 0.0); SW]; 2],
             tone: (0..TONE_LEN)
                 .map(|i| {
                     let v = i as f32 / TONE_SCALE;
@@ -233,6 +243,7 @@ impl Renderer {
             rgba: vec![255; N * 4],
             table: light::hdr_table(),
             cam: Vec3::ZERO,
+            cut_mask: 0,
             basis: Camera {
                 center: Vec3::ZERO,
                 yaw: 0.0,
@@ -251,6 +262,13 @@ impl Renderer {
             s.camera.center
         };
 
+        let f = self.basis.f;
+        self.cut_mask = (if f.x > 0.3 { CUT_NX } else { 0 })
+            | (if f.x < -0.3 { CUT_PX } else { 0 })
+            | (if f.z > 0.3 { CUT_NZ } else { 0 })
+            | (if f.z < -0.3 { CUT_PZ } else { 0 })
+            | (if f.y < -0.3 { CUT_PY } else { 0 });
+
         self.depth.fill(f32::INFINITY);
         self.glass_d.fill(f32::INFINITY);
         self.wf.fill(f32::INFINITY);
@@ -261,14 +279,15 @@ impl Renderer {
         let now = tinyquad::date::now;
         let mut marks = [now(); 8];
         if self.basis.cardinal {
-            self.copy_world(s.lighting);
+            self.copy_world(s.lighting, s.world.size(), s.generation);
         } else {
             self.splat_world(s.lighting);
+            self.image = None;
         }
         marks[1] = now();
         self.splat_dynamic(s);
         marks[2] = now();
-        self.splat_water(s.water);
+        self.splat_water(s.water, s.world.size());
         marks[3] = now();
         self.draw_bolt(s.weather);
         self.composite(s);
@@ -277,7 +296,7 @@ impl Renderer {
         marks[5] = now();
         self.bloom();
         marks[6] = now();
-        self.finish();
+        self.finish(s.fade);
         marks[7] = now();
         self.frame_ms = (marks[7] - marks[0]) * 1000.0;
         #[cfg(test)]
@@ -333,6 +352,9 @@ impl Renderer {
             }
             let o = vec3(0.5, 0.5, 0.5) - c;
             for v in &chunk.voxels {
+                if v.shade.cut & self.cut_mask != 0 {
+                    continue;
+                }
                 let rel = vec3(
                     f32::from(v.pos[0]),
                     f32::from(v.pos[1]),
@@ -350,16 +372,17 @@ impl Renderer {
 
     /// Cardinal views: project the whole world once into an image, then
     /// copy the window under the camera.
-    fn copy_world(&mut self, lighting: &Lighting) {
+    fn copy_world(&mut self, lighting: &Lighting, size: Vec3, generation: u32) {
         let b = self.basis;
         let us = b.u * b.stretch;
         let key = (
             b.r.x.round() as i32 + 2 * b.r.z.round() as i32,
             us.y.round() as i32,
             us.x.round() as i32 + 2 * us.z.round() as i32,
+            generation,
         );
         if self.image.as_ref().is_none_or(|img| img.key != key) {
-            self.image = Some(Self::build_image(lighting, &b, key));
+            self.image = Some(Self::build_image(lighting, &b, key, size, self.cut_mask));
         }
         let img = self.image.as_ref().unwrap();
         let c = self.cam;
@@ -391,7 +414,13 @@ impl Renderer {
         }
     }
 
-    fn build_image(lighting: &Lighting, b: &Basis, key: (i32, i32, i32)) -> WorldImage {
+    fn build_image(
+        lighting: &Lighting,
+        b: &Basis,
+        key: (i32, i32, i32, u32),
+        size: Vec3,
+        mask: u8,
+    ) -> WorldImage {
         let us = b.u * b.stretch;
         let (mut rmin, mut rmax, mut umin, mut umax) = (
             f32::INFINITY,
@@ -401,9 +430,9 @@ impl Renderer {
         );
         for k in 0..8 {
             let p = vec3(
-                if k & 1 == 0 { 0.0 } else { W as f32 },
-                if k & 2 == 0 { 0.0 } else { H as f32 },
-                if k & 4 == 0 { 0.0 } else { D as f32 },
+                if k & 1 == 0 { 0.0 } else { size.x },
+                if k & 2 == 0 { 0.0 } else { size.y },
+                if k & 4 == 0 { 0.0 } else { size.z },
             );
             rmin = rmin.min(p.dot(b.r));
             rmax = rmax.max(p.dot(b.r));
@@ -427,6 +456,9 @@ impl Renderer {
         };
         for chunk in &lighting.chunks {
             for v in &chunk.voxels {
+                if v.shade.cut & mask != 0 {
+                    continue;
+                }
                 let p = vec3(
                     f32::from(v.pos[0]) + 0.5,
                     f32::from(v.pos[1]) + 0.5,
@@ -477,7 +509,14 @@ impl Renderer {
         let (lamp, other) = s.lighting.grid_at(p);
         let lamp_pos = s.world.lights[0].pos;
         Env {
-            sky: if covered { 0.3 } else { 1.0 },
+            sky: if s.world.info.sky == Sky::Indoor {
+                0.0
+            } else if covered {
+                0.3
+            } else {
+                1.0
+            },
+            fill: s.world.info.fill,
             lamp,
             other,
             lamp_dir: (lamp_pos - p).normalize_or_zero(),
@@ -515,7 +554,7 @@ impl Renderer {
                     other: light::enc_rgb_hdr(v.color),
                     flags: flags | F_EMISSIVE,
                     spec: 0,
-                    _pad: 0,
+                    cut: 0,
                 }
             } else {
                 let n = (fwd * f32::from(v.n[0])
@@ -525,9 +564,9 @@ impl Renderer {
                 let ndl = 0.3 + 0.7 * n.dot(env.lamp_dir).max(0.0);
                 let up = 0.6 + 0.4 * n.y.max(0.0);
                 let amb = [
-                    v.color[0] * (light::SKY[0] * env.sky * up + light::FILL[0]),
-                    v.color[1] * (light::SKY[1] * env.sky * up + light::FILL[1]),
-                    v.color[2] * (light::SKY[2] * env.sky * up + light::FILL[2]),
+                    v.color[0] * (light::SKY[0] * env.sky * up + env.fill[0]),
+                    v.color[1] * (light::SKY[1] * env.sky * up + env.fill[1]),
+                    v.color[2] * (light::SKY[2] * env.sky * up + env.fill[2]),
                 ];
                 Shade {
                     amb: light::enc_rgb_ldr(amb),
@@ -539,7 +578,7 @@ impl Renderer {
                     })),
                     flags: flags | if n.y > 0.5 { F_TOP } else { 0 },
                     spec: 0,
-                    _pad: 0,
+                    cut: 0,
                 }
             };
             self.plot(sx, sy, d, shade, oid, size);
@@ -607,7 +646,7 @@ impl Renderer {
         }
     }
 
-    fn splat_water(&mut self, water: &Water) {
+    fn splat_water(&mut self, water: &Water, world_size: Vec3) {
         let b = self.basis;
         let c = self.cam;
         let size = if b.cardinal { 1 } else { 2 };
@@ -635,21 +674,22 @@ impl Renderer {
         };
         for &ci in &water.cells {
             let i = ci as usize;
-            let (x, z) = ((ci as i32 % W) as f32, (ci as i32 / W) as f32);
+            let (x, z) = water.cell_xz(ci);
+            let (x, z) = (x as f32, z as f32);
             let h = water.h[i];
             plot(self, vec3(x + 0.5, h - 0.5, z + 0.5), ci + 1);
             // cut faces where the canal meets the edge of the world
             let edge_x = if x == 0.0 {
                 Some(0.0)
-            } else if x == (W - 1) as f32 {
-                Some(W as f32)
+            } else if x == world_size.x - 1.0 {
+                Some(world_size.x)
             } else {
                 None
             };
             let edge_z = if z == 0.0 {
                 Some(0.0)
-            } else if z == (D - 1) as f32 {
-                Some(D as f32)
+            } else if z == world_size.z - 1.0 {
+                Some(world_size.z)
             } else {
                 None
             };
@@ -718,12 +758,13 @@ impl Renderer {
         let view = -b.f;
 
         // depth range of the world along the view, for fog
+        let size = s.world.size();
         let (mut dmin, mut dmax) = (f32::INFINITY, f32::NEG_INFINITY);
         for k in 0..8 {
             let p = vec3(
-                if k & 1 == 0 { 0.0 } else { W as f32 },
-                if k & 2 == 0 { 0.0 } else { H as f32 },
-                if k & 4 == 0 { 0.0 } else { D as f32 },
+                if k & 1 == 0 { 0.0 } else { size.x },
+                if k & 2 == 0 { 0.0 } else { size.y },
+                if k & 4 == 0 { 0.0 } else { size.z },
             );
             let d = (p - c).dot(b.f);
             dmin = dmin.min(d);
@@ -771,8 +812,12 @@ impl Renderer {
         let down = vec3(0.0, -1.0, 0.0);
         let axis2 = (down.dot(b.r), -down.dot(b.u) * b.stretch);
         let axis_len = (axis2.0 * axis2.0 + axis2.1 * axis2.1).sqrt();
-        let beam_len = (lamp_pos.y - GROUND as f32) * b.stretch;
-        let beam_k = 0.16 * lamp_scale * (0.5 + 0.5 * s.weather.intensity);
+        let beam_len = (lamp_pos.y - s.world.info.ground) * b.stretch;
+        let beam_k = if s.world.lights[0].cone > 0.0 {
+            0.16 * lamp_scale * (0.5 + 0.5 * s.weather.intensity)
+        } else {
+            0.0
+        };
 
         for y in 0..SH {
             for x in 0..SW {
@@ -913,7 +958,7 @@ impl Renderer {
                     });
                     let cell = self.wcell[i];
                     if cell > 0 {
-                        let (wx, wz) = ((cell - 1) as i32 % W, (cell - 1) as i32 / W);
+                        let (wx, wz) = s.water.cell_xz(cell - 1);
                         let (gx, gz) = s.water.slope(wx, wz);
                         let n = vec3(-gx * 2.0, 1.0, -gz * 2.0).normalize();
                         let l = (lamp_pos - p).normalize_or_zero();
@@ -974,7 +1019,7 @@ impl Renderer {
                 // x-ray outline of the cat when something hides it
                 let cd = self.cat_d[i];
                 if cd.is_finite() && cd > d + 1.5 {
-                    col = mix(col, [0.95, 0.62, 0.3], 0.28);
+                    col = mix(col, [0.55, 0.75, 1.0], 0.28);
                 }
                 self.hdr[i] = col;
             }
@@ -991,11 +1036,12 @@ impl Renderer {
         if along_f < 0.05 {
             return None;
         }
+        let size = s.world.size();
         let far = [
             vec3(0.0, 0.0, 0.0),
-            vec3(W as f32, 0.0, D as f32),
-            vec3(W as f32, 0.0, 0.0),
-            vec3(0.0, 0.0, D as f32),
+            vec3(size.x, 0.0, size.z),
+            vec3(size.x, 0.0, 0.0),
+            vec3(0.0, 0.0, size.z),
         ]
         .iter()
         .map(|p| p.dot(b.fh))
@@ -1006,25 +1052,52 @@ impl Renderer {
         };
         let (h00, h10, h01) = (hit(0, 0), hit(1, 0), hit(0, 1));
         let shift = c.dot(b.r);
+        let ground = s.world.info.ground;
+        let sky = s.world.info.sky;
         for (layer, (par, base_h)) in [(0.15f32, 28.0f32), (0.3, 12.0)].into_iter().enumerate() {
             for (x, slot) in self.skyline[layer].iter_mut().enumerate() {
                 let u = (x as f32 + shift * par + layer as f32 * 977.0) as i32;
-                let block = u.div_euclid(9 + layer as i32 * 4);
-                *slot = (
-                    u,
-                    GROUND as f32 + base_h + (hash3(block, layer as i32, 5) % 40) as f32,
-                );
+                *slot = match sky {
+                    Sky::City => {
+                        let block = u.div_euclid(9 + layer as i32 * 4);
+                        (
+                            u,
+                            ground + base_h + (hash3(block, layer as i32, 5) % 40) as f32,
+                            -1e9,
+                        )
+                    }
+                    Sky::Stars => {
+                        // far floating islands: flat tops, rocky cones below
+                        let span = 70 + layer as i32 * 40;
+                        let id = u.div_euclid(span);
+                        let r = hash3(id, layer as i32, 9);
+                        let half = 10.0 + (r % 18) as f32 + layer as f32 * 6.0;
+                        let dx = (u.rem_euclid(span) as f32 - span as f32 * 0.5).abs() / half;
+                        if !r.is_multiple_of(3) && dx < 1.0 {
+                            let top = 20.0 + ((r >> 8) % 90) as f32 - layer as f32 * 25.0;
+                            let bottom =
+                                top - 4.0 - (1.0 - dx * dx) * (10.0 + ((r >> 16) % 18) as f32);
+                            (u, top + (1.0 - dx * dx).sqrt() * 2.0, bottom)
+                        } else {
+                            (u, -1e9, -1e9)
+                        }
+                    }
+                    Sky::Indoor => (u, -1e9, -1e9),
+                };
             }
         }
         // the cloud row and column advance linearly too
-        let along0 = h00.dot(b.r) * 0.9 + s.time * 2.0;
+        let drift = s.time * 2.0;
         Some(Background {
+            sky,
             y0: h00.y,
             ydx: h10.y - h00.y,
             ydy: h01.y - h00.y,
-            a0: along0,
+            a0: h00.dot(b.r) * 0.9 + drift,
             adx: (h10 - h00).dot(b.r) * 0.9,
             ady: (h01 - h00).dot(b.r) * 0.9,
+            drift,
+            time: s.time,
         })
     }
 
@@ -1033,37 +1106,74 @@ impl Renderer {
         let Some(bg) = bg else { return void };
         let (fx, fy) = (x as f32, y as f32);
         let world_y = bg.y0 + bg.ydx * fx + bg.ydy * fy;
-        if world_y < 0.0 {
-            return mix([0.03, 0.035, 0.055], void, smoothstep(0.0, 30.0, -world_y));
+        let along = bg.a0 + bg.adx * fx + bg.ady * fy;
+        match bg.sky {
+            Sky::Indoor => {
+                // the cut-away room hangs in a dim warm dark
+                let v = smoothstep(-60.0, 120.0, world_y);
+                return mix([0.012, 0.01, 0.016], [0.035, 0.028, 0.04], v);
+            }
+            Sky::City if world_y < 0.0 => {
+                return mix([0.03, 0.035, 0.055], void, smoothstep(0.0, 30.0, -world_y));
+            }
+            _ => {}
         }
-        let mut sky = mix(
-            [0.07, 0.085, 0.14],
-            [0.02, 0.025, 0.05],
-            smoothstep(10.0, 200.0, world_y),
-        );
+        let stars = bg.sky == Sky::Stars;
+        let mut sky = if stars {
+            // deep indigo overhead, a violet glow low down, darker below
+            let up = mix(
+                [0.10, 0.05, 0.16],
+                [0.02, 0.02, 0.07],
+                smoothstep(0.0, 180.0, world_y),
+            );
+            mix(up, [0.008, 0.008, 0.02], smoothstep(0.0, 120.0, -world_y))
+        } else {
+            mix(
+                [0.07, 0.085, 0.14],
+                [0.02, 0.025, 0.05],
+                smoothstep(10.0, 200.0, world_y),
+            )
+        };
         let cloud = {
-            let u =
-                ((bg.a0 + bg.adx * fx + bg.ady * fy) as i32).rem_euclid(CLOUD_W as i32) as usize;
-            let v = (world_y as usize).min(CLOUD_H - 1);
+            let u = (along as i32).rem_euclid(CLOUD_W as i32) as usize;
+            let v = (world_y.max(0.0) as usize).min(CLOUD_H - 1);
             self.clouds[v * CLOUD_W + u]
         };
-        sky = mix(sky, [0.12, 0.13, 0.19], cloud * 0.5);
+        if stars {
+            let (su, sv) = ((along - bg.drift) as i32, world_y as i32);
+            let h = hash3(su, sv, 31);
+            if h.is_multiple_of(173) {
+                let twinkle = 0.5
+                    + 0.5 * (bg.time * (1.0 + (h >> 20) as f32 * 0.002) + (h % 100) as f32).sin();
+                let v = 0.25 + 0.6 * twinkle;
+                sky = [sky[0] + v, sky[1] + v, sky[2] + v * 1.1];
+            }
+            sky = mix(sky, [0.16, 0.08, 0.2], cloud * 0.25);
+        } else {
+            sky = mix(sky, [0.12, 0.13, 0.19], cloud * 0.5);
+        }
         sky = mix(sky, [0.55, 0.55, 0.75], flash * (0.35 + cloud * 0.5));
-        // two layers of distant skyline with parallax
-        for (layer, col) in [[0.035f32, 0.045, 0.075], [0.025, 0.032, 0.055]]
-            .into_iter()
-            .enumerate()
-        {
-            let (u, height) = self.skyline[layer][x];
-            if world_y < height {
+        // two layers of distant skyline / floating islands with parallax
+        let layers = if stars {
+            [[0.05f32, 0.035, 0.08], [0.035, 0.025, 0.06]]
+        } else {
+            [[0.035f32, 0.045, 0.075], [0.025, 0.032, 0.055]]
+        };
+        for (layer, col) in layers.into_iter().enumerate() {
+            let (u, top, bottom) = self.skyline[layer][x];
+            if world_y < top && world_y > bottom {
                 sky = col;
                 let wy = world_y as i32;
                 if u.rem_euclid(3) != 0
                     && wy.rem_euclid(4) != 0
                     && hash3(u.div_euclid(3), wy.div_euclid(4), 11 + layer as i32)
-                        .is_multiple_of(17)
+                        .is_multiple_of(if stars { 41 } else { 17 })
                 {
-                    sky = [0.35, 0.28, 0.12];
+                    sky = if stars {
+                        [0.5, 0.2, 0.45]
+                    } else {
+                        [0.35, 0.28, 0.12]
+                    };
                 }
                 sky = mix(sky, [0.25, 0.25, 0.35], flash * 0.4);
             }
@@ -1182,7 +1292,8 @@ impl Renderer {
         }
     }
 
-    fn finish(&mut self) {
+    fn finish(&mut self, fade: f32) {
+        let fade = 1.0 - fade.clamp(0.0, 1.0);
         let tone = &self.tone;
         let mut out = self.rgba.as_chunks_mut::<4>().0.iter_mut();
         for y in 0..SH {
@@ -1192,7 +1303,7 @@ impl Renderer {
                 let dither = bayer[x & 3];
                 let p = self.hdr[y * SW + x];
                 for c in 0..3 {
-                    let v = (p[c] * TONE_SCALE).clamp(0.0, (TONE_LEN - 1) as f32) as usize;
+                    let v = (p[c] * fade * TONE_SCALE).clamp(0.0, (TONE_LEN - 1) as f32) as usize;
                     // tone[] holds the curve times LEVELS; dither picks the level
                     px[c] =
                         (((tone[v] + dither) as u32) as f32 * (255.0 / LEVELS)).min(255.0) as u8;

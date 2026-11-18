@@ -9,7 +9,7 @@ use crate::cat::{self, Cat};
 use crate::props::{GRAVITY, Prop};
 use crate::util::Rng;
 use crate::water::Water;
-use crate::world::{D, H, W, World};
+use crate::world::World;
 use glam::{Vec3, vec3};
 
 pub const MAX_DROPS: usize = 2600;
@@ -63,6 +63,8 @@ pub struct Weather {
     pub roof_noise: f32,
     /// Center of the rain volume (the camera), set by the game.
     pub focus: Vec3,
+    /// The level's rain scale (0 indoors).
+    pub level_rain: f32,
     pub sounds: Vec<Sound>,
     /// (seconds left, strength, distance)
     pub thunder: Vec<(f32, f32, f32)>,
@@ -73,7 +75,7 @@ pub struct Weather {
 }
 
 impl Weather {
-    pub fn new(rng: &mut Rng, center: Vec3) -> Weather {
+    pub fn new(rng: &mut Rng, center: Vec3, world: &World) -> Weather {
         let mut w = Weather {
             drops: Vec::with_capacity(MAX_DROPS),
             particles: Vec::with_capacity(MAX_PARTICLES),
@@ -84,6 +86,7 @@ impl Weather {
             bolt: None,
             roof_noise: 0.0,
             focus: center,
+            level_rain: world.info.rain,
             sounds: Vec::new(),
             thunder: Vec::new(),
             next_strike: 5.0,
@@ -96,7 +99,7 @@ impl Weather {
                 p: Vec3::ZERO,
                 v: Vec3::ZERO,
             };
-            respawn(&mut d, rng, center, w.wind, true);
+            respawn(&mut d, rng, center, w.wind, true, world.size());
             w.drops.push(d);
         }
         w
@@ -120,7 +123,8 @@ impl Weather {
         self.intensity += (self.target_intensity - self.intensity) * dt * 0.3;
         self.gust += (rng.range(-1.0, 1.0) * 40.0 - self.gust) * dt * 0.5;
         self.wind = 16.0 + self.gust;
-        self.active = (MAX_DROPS as f32 * (0.35 + 0.65 * self.intensity)) as usize;
+        self.active =
+            (MAX_DROPS as f32 * (0.35 + 0.65 * self.intensity) * self.level_rain) as usize;
 
         let cat_c = cat.center();
         let mut roof_hits = 0;
@@ -170,9 +174,9 @@ impl Weather {
                         });
                     }
                 }
-                respawn(d, rng, center, self.wind, false);
+                respawn(d, rng, center, self.wind, false, world.size());
             } else if next.y < -8.0 {
-                respawn(d, rng, center, self.wind, false);
+                respawn(d, rng, center, self.wind, false, world.size());
             } else {
                 d.p = next;
             }
@@ -181,7 +185,7 @@ impl Weather {
         self.roof_noise = self.roof_noise.clamp(0.0, 1.0);
 
         // heavy drips off the roof edges
-        let drip_rate = 0.25 * self.intensity;
+        let drip_rate = 0.25 * self.intensity * self.level_rain;
         for &p in &world.drip_points {
             if rng.chance(drip_rate * dt) && self.particles.len() < MAX_PARTICLES {
                 self.particles.push(Particle {
@@ -193,9 +197,12 @@ impl Weather {
             }
         }
         // the downspout pours steadily, harder in heavy rain
-        let spout = world.downspout;
-        let pour = (40.0 + 140.0 * self.intensity) * dt;
+        let pour = (40.0 + 140.0 * self.intensity) * dt * self.level_rain;
         let mut n = pour.floor() as i32 + i32::from(rng.chance(pour.fract()));
+        let spout = world.downspout.unwrap_or(Vec3::ZERO);
+        if world.downspout.is_none() {
+            n = 0;
+        }
         while n > 0 && self.particles.len() < MAX_PARTICLES {
             n -= 1;
             self.particles.push(Particle {
@@ -304,7 +311,7 @@ impl Weather {
         for t in &mut self.thunder {
             t.0 -= dt;
         }
-        self.next_strike -= dt * (0.4 + self.intensity);
+        self.next_strike -= dt * (0.4 + self.intensity) * self.level_rain.min(1.0);
         if self.next_strike <= 0.0 {
             self.next_strike = rng.range(7.0, 18.0);
             let distance = rng.f32();
@@ -379,7 +386,7 @@ fn inside_cat(cat: &Cat, p: Vec3) -> bool {
 }
 
 /// Puts a drop back at the top of the rain volume around `center`.
-fn respawn(d: &mut Drop, rng: &mut Rng, center: Vec3, wind: f32, anywhere: bool) {
+fn respawn(d: &mut Drop, rng: &mut Rng, center: Vec3, wind: f32, anywhere: bool, size: Vec3) {
     // uniform over the part of the rain box that overlaps the world (+ a
     // margin), so drops never pile up on a clamped edge
     let span = |c: f32, half: f32, size: f32| {
@@ -391,12 +398,12 @@ fn respawn(d: &mut Drop, rng: &mut Rng, center: Vec3, wind: f32, anywhere: bool)
             (-30.0, size + 30.0)
         }
     };
-    let (x0, x1) = span(center.x, 250.0, W as f32);
-    let (z0, z1) = span(center.z, 160.0, D as f32);
+    let (x0, x1) = span(center.x, 250.0, size.x);
+    let (z0, z1) = span(center.z, 160.0, size.z);
     let y = if anywhere {
-        rng.range(0.0, H as f32 + 40.0)
+        rng.range(0.0, size.y + 40.0)
     } else {
-        H as f32 + rng.range(0.0, 50.0)
+        size.y + rng.range(0.0, 50.0)
     };
     d.p = vec3(rng.range(x0, x1), y, rng.range(z0, z1));
     d.v = vec3(wind, -FALL_SPEED * rng.range(0.9, 1.1), 0.0);

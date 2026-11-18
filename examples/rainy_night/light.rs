@@ -15,7 +15,7 @@
 //! (cat, floating boxes, rain) use `lighting_at` / the coarse light grid.
 
 use crate::util::{Rgb, mul, scale, smoothstep};
-use crate::world::{D, H, Light, Mat, W, World};
+use crate::world::{Light, Mat, World};
 use glam::{Vec3, vec3};
 
 pub const F_TOP: u8 = 1;
@@ -63,7 +63,8 @@ pub struct Shade {
     pub flags: u8,
     /// wet tops: raw lamp intensity for reflections
     pub spec: u8,
-    pub _pad: u8,
+    /// Interior wall/ceiling bits (`world::CUT_*`): hidden when facing the camera.
+    pub cut: u8,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -83,12 +84,12 @@ pub const CHUNK: i32 = 32;
 
 /// Coarse light grid for moving things (cell = 8 voxels).
 pub const GRID: i32 = 8;
-const GW: i32 = W / GRID;
-const GH: i32 = H / GRID;
-const GD: i32 = D / GRID;
 
 pub struct Lighting {
     pub chunks: Vec<Chunk>,
+    gw: i32,
+    gh: i32,
+    gd: i32,
     grid_lamp: Vec<Rgb>,
     grid_other: Vec<Rgb>,
 }
@@ -116,9 +117,9 @@ const FACES: [(i32, i32, i32); 6] = [
 
 impl Lighting {
     pub fn bake(world: &World) -> Lighting {
-        let cx = W / CHUNK;
-        let cy = H / CHUNK;
-        let cz = D / CHUNK;
+        let cx = (world.w + CHUNK - 1) / CHUNK;
+        let cy = (world.h + CHUNK - 1) / CHUNK;
+        let cz = (world.d + CHUNK - 1) / CHUNK;
         let mut chunks: Vec<Chunk> = (0..cx * cy * cz)
             .map(|i| {
                 let (x, y, z) = (i % cx, (i / cx) % cy, i / (cx * cy));
@@ -130,9 +131,9 @@ impl Lighting {
                 }
             })
             .collect();
-        for y in 0..H {
-            for z in 0..D {
-                for x in 0..W {
+        for y in 0..world.h {
+            for z in 0..world.d {
+                for x in 0..world.w {
                     let m = world.get(x, y, z);
                     if m == Mat::Air {
                         continue;
@@ -152,21 +153,30 @@ impl Lighting {
         }
         chunks.retain(|c| !c.voxels.is_empty());
 
+        let (gw, gh, gd) = (
+            (world.w + GRID - 1) / GRID,
+            (world.h + GRID - 1) / GRID,
+            (world.d + GRID - 1) / GRID,
+        );
         let mut lighting = Lighting {
             chunks,
-            grid_lamp: vec![[0.0; 3]; (GW * GH * GD) as usize],
-            grid_other: vec![[0.0; 3]; (GW * GH * GD) as usize],
+            gw,
+            gh,
+            gd,
+            grid_lamp: vec![[0.0; 3]; (gw * gh * gd) as usize],
+            grid_other: vec![[0.0; 3]; (gw * gh * gd) as usize],
         };
         lighting.bake_grid(world);
         lighting
     }
 
     fn bake_grid(&mut self, world: &World) {
-        for gy in 0..GH {
-            for gz in 0..GD {
-                for gx in 0..GW {
+        let (gw, gh, gd) = (self.gw, self.gh, self.gd);
+        for gy in 0..gh {
+            for gz in 0..gd {
+                for gx in 0..gw {
                     let p = vec3(gx as f32 + 0.5, gy as f32 + 0.5, gz as f32 + 0.5) * GRID as f32;
-                    let i = ((gy * GD + gz) * GW + gx) as usize;
+                    let i = ((gy * gd + gz) * gw + gx) as usize;
                     let (lamp, other) = point_lights(world, p, None);
                     self.grid_lamp[i] = lamp;
                     self.grid_other[i] = other;
@@ -186,14 +196,14 @@ impl Lighting {
         for corner in 0..8 {
             let (ox, oy, oz) = (corner & 1, (corner >> 1) & 1, (corner >> 2) & 1);
             let (x, y, z) = (
-                (bx + ox).clamp(0, GW - 1),
-                (by + oy).clamp(0, GH - 1),
-                (bz + oz).clamp(0, GD - 1),
+                (bx + ox).clamp(0, self.gw - 1),
+                (by + oy).clamp(0, self.gh - 1),
+                (bz + oz).clamp(0, self.gd - 1),
             );
             let w = (if ox == 1 { f.x } else { 1.0 - f.x })
                 * (if oy == 1 { f.y } else { 1.0 - f.y })
                 * (if oz == 1 { f.z } else { 1.0 - f.z });
-            let i = ((y * GD + z) * GW + x) as usize;
+            let i = ((y * self.gd + z) * self.gw + x) as usize;
             for c in 0..3 {
                 lamp[c] += self.grid_lamp[i][c] * w;
                 other[c] += self.grid_other[i][c] * w;
@@ -217,6 +227,7 @@ fn open_faces(world: &World, x: i32, y: i32, z: i32, m: Mat) -> u8 {
 }
 
 fn shade_voxel(world: &World, x: i32, y: i32, z: i32, m: Mat, open: u8) -> Shade {
+    let cut = world.cut_bits(x, y, z);
     let albedo = m.albedo(x, y, z);
     let top = open & (1 << 2) != 0;
     let mut flags = 0;
@@ -243,7 +254,7 @@ fn shade_voxel(world: &World, x: i32, y: i32, z: i32, m: Mat, open: u8) -> Shade
             other: enc_rgb_hdr(other),
             flags,
             spec: 0,
-            _pad: 0,
+            cut,
         };
     }
 
@@ -261,10 +272,11 @@ fn shade_voxel(world: &World, x: i32, y: i32, z: i32, m: Mat, open: u8) -> Shade
         };
         sky = sky.max(vis * ao);
     }
+    let fill = world.info.fill;
     let ambient = [
-        SKY[0] * sky + FILL[0],
-        SKY[1] * sky + FILL[1],
-        SKY[2] * sky + FILL[2],
+        SKY[0] * sky + fill[0],
+        SKY[1] * sky + fill[1],
+        SKY[2] * sky + fill[2],
     ];
 
     let center = vec3(x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5);
@@ -280,7 +292,7 @@ fn shade_voxel(world: &World, x: i32, y: i32, z: i32, m: Mat, open: u8) -> Shade
         other: enc_rgb_hdr(mul(albedo, other)),
         flags,
         spec,
-        _pad: 0,
+        cut,
     }
 }
 

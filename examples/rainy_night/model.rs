@@ -101,12 +101,15 @@ pub struct CatPose {
     pub time: f32,
 }
 
-const FUR: u32 = 0xd8843c;
-const FUR_DARK: u32 = 0x9f5426;
-const CREAM: u32 = 0xf1dcbc;
-const PINK: u32 = 0xe08e8e;
+// a dark gray cat (faint darker tabby marks, pale gray chest and paws)
+const FUR: u32 = 0x5b5e68;
+const FUR_DARK: u32 = 0x464852;
+const CREAM: u32 = 0x8f939e;
+const PINK: u32 = 0xc98d96;
+/// Blue eyes, catching the light at night.
+const EYES: [f32; 3] = [0.35, 0.78, 1.7];
 
-/// A ginger tabby, ~24 voxels nose to tail, 14 tall to the ear tips,
+/// A dark gray cat with blue eyes, ~24 voxels nose to tail, 14 tall to the ear tips,
 /// 8 wide. a = -12..12 (tail to nose), b = -4..4.
 pub fn cat(pose: &CatPose) -> Model {
     let crouch = pose.crouch;
@@ -136,9 +139,9 @@ pub fn cat(pose: &CatPose) -> Model {
             // eyes: one on each side of the face, glowing at night
             if (hx - 2.6).abs() < 0.8 && (hy - 0.6).abs() < 0.8 && (hz.abs() - 2.0).abs() < 0.9 {
                 return Some(if pose.blink {
-                    (rgb(0x4a2a1a), false)
+                    (rgb(0x2c2e35), false)
                 } else {
-                    ([0.85, 1.35, 0.35], true)
+                    (EYES, true)
                 });
             }
             if hx > 3.4 && (hy + 0.6).abs() < 0.7 && hz.abs() < 1.0 {
