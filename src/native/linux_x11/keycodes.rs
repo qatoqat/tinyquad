@@ -5,16 +5,16 @@ use super::{Display, LibX11};
 use crate::event::{KeyCode, KeyMods, MouseButton};
 use crate::native::keycodes::translate_keysym;
 use crate::native::linux_x11::libx11::LibXkbCommon;
+use core::ffi::{c_int, c_void};
 
 pub unsafe fn translate_key(libx11: &mut LibX11, display: *mut Display, scancode: i32) -> KeyCode {
     unsafe {
-        let mut dummy: libc::c_int = 0;
-        let keysyms =
-            (libx11.XGetKeyboardMapping)(display, scancode as _, 1 as libc::c_int, &mut dummy);
+        let mut dummy: c_int = 0;
+        let keysyms = (libx11.XGetKeyboardMapping)(display, scancode as _, 1 as c_int, &mut dummy);
         assert!(!keysyms.is_null());
 
-        let keysym = *keysyms.offset(0 as libc::c_int as isize);
-        (libx11.XFree)(keysyms as *mut libc::c_void);
+        let keysym = *keysyms.offset(0 as c_int as isize);
+        (libx11.XFree)(keysyms as *mut c_void);
         // X11 keysyms are the same keysym space the Wayland backend
         // reaches through `xkb`, so they share one translation table.
         translate_keysym(keysym as u32)

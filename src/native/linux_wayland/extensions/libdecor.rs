@@ -1,4 +1,4 @@
-#![allow(non_camel_case_types, dead_code)]
+#![expect(dead_code)]
 
 use super::super::libwayland_client::*;
 use super::xdg_shell::*;

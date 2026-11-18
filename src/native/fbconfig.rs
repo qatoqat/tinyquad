@@ -101,7 +101,7 @@ pub(crate) fn fbconfig_choose(
 mod tests {
     use super::*;
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn spec(
         red: i32,
         green: i32,

@@ -4,12 +4,8 @@
 
 // stripped mac core foundation + metal layer only whats needed
 
-#![allow(non_camel_case_types)]
-#![allow(non_upper_case_globals)]
-#![allow(non_snake_case)]
-#![allow(dead_code)]
+#![expect(non_upper_case_globals)]
 // Bindings-style helpers take `ObjcId` raw pointers for ObjC message sends.
-#![allow(clippy::not_unsafe_ptr_arg_deref)]
 
 pub use {
     objc::{
@@ -612,7 +608,7 @@ impl MTLClearColor {
 }
 
 #[repr(u64)]
-#[allow(non_camel_case_types)]
+#[expect(non_camel_case_types)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum MTLPixelFormat {
     Invalid = 0,
@@ -655,7 +651,7 @@ pub enum MTLSamplerAddressMode {
 }
 
 #[repr(u64)]
-#[allow(non_camel_case_types)]
+#[expect(non_camel_case_types)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum MTLVertexFormat {
     Invalid = 0,
@@ -722,7 +718,6 @@ pub enum MTLVertexStepFunction {
     PerPatchControlPoint = 4,
 }
 #[repr(u64)]
-#[allow(non_camel_case_types)]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum MTLBlendFactor {
     Zero = 0,
@@ -747,7 +742,6 @@ pub enum MTLBlendFactor {
 }
 
 #[repr(u64)]
-#[allow(non_camel_case_types)]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum MTLBlendOperation {
     Add = 0,
@@ -787,7 +781,6 @@ pub enum MTLCompareFunction {
 }
 
 #[repr(u64)]
-#[allow(non_camel_case_types)]
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub enum MTLTextureType {
     D1 = 0,
@@ -801,7 +794,6 @@ pub enum MTLTextureType {
 }
 
 #[repr(u64)]
-#[allow(non_camel_case_types)]
 pub enum MTLTextureUsage {
     Unknown = 0x0000,
     ShaderRead = 0x0001,
@@ -811,7 +803,6 @@ pub enum MTLTextureUsage {
 }
 
 #[repr(u64)]
-#[allow(non_camel_case_types)]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum MTLStorageMode {
     Shared = 0,
@@ -851,7 +842,6 @@ pub struct CGSize {
 }
 
 #[repr(u64)]
-#[allow(non_camel_case_types)]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum MTLCPUCacheMode {
     DefaultCache = 0,
@@ -859,7 +849,6 @@ pub enum MTLCPUCacheMode {
 }
 
 #[repr(u64)]
-#[allow(non_camel_case_types)]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum MTLHazardTrackingMode {
     Default = 0,
@@ -876,7 +865,6 @@ pub const MTLResourceStorageModeMask: u64 = 0xf << MTLResourceStorageModeShift;
 pub const MTLResourceHazardTrackingModeShift: u64 = 8;
 pub const MTLResourceHazardTrackingModeMask: u64 = 0x3 << MTLResourceHazardTrackingModeShift;
 
-#[allow(non_upper_case_globals)]
 pub struct MTLResourceOptions;
 impl MTLResourceOptions {
     pub const CPUCacheModeDefaultCache: u64 =
@@ -970,7 +958,6 @@ pub enum NSOpenGLPixelFormatAttribute {
 }
 
 #[repr(u64)]
-#[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum NSOpenGLPFAOpenGLProfiles {
     NSOpenGLProfileVersionLegacy = 0x1000,

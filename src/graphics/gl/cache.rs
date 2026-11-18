@@ -99,6 +99,19 @@ impl GlCache {
         }
     }
 
+    /// Makes sure `texture` is bound to texture unit `slot_index`, without
+    /// any GL call when the cache says it already is.
+    ///
+    /// Unlike [`bind_texture`](Self::bind_texture) this does not promise
+    /// which texture unit is active afterwards, so it is only for draw-time
+    /// binding; code about to call `glTex*` must use `bind_texture`.
+    pub fn ensure_texture_bound(&mut self, slot_index: usize, target: GLuint, texture: GLuint) {
+        let cached = self.textures[slot_index];
+        if cached.target != target || cached.texture != texture {
+            self.bind_texture(slot_index, target, texture);
+        }
+    }
+
     pub fn store_texture_binding(&mut self, slot_index: usize) {
         self.stored_target = self.textures[slot_index].target;
         self.stored_texture = self.textures[slot_index].texture;
@@ -116,6 +129,44 @@ impl GlCache {
         self.index_buffer = 0;
     }
 
+    /// Drops every cached reference to `buffer`, which is about to be
+    /// deleted: GL may hand the same name out again for a new buffer, and a
+    /// stale cache entry would then wrongly skip a rebind.
+    pub fn forget_buffer(&mut self, buffer: GLuint) {
+        if self.vertex_buffer == buffer {
+            self.bind_buffer(GL_ARRAY_BUFFER, 0, None);
+        }
+        if self.index_buffer == buffer {
+            self.bind_buffer(GL_ELEMENT_ARRAY_BUFFER, 0, None);
+        }
+        if self.stored_vertex_buffer == buffer {
+            self.stored_vertex_buffer = 0;
+        }
+        if self.stored_index_buffer == buffer {
+            self.stored_index_buffer = 0;
+        }
+        for (attr_index, cached_attr) in self.attributes.iter_mut().enumerate() {
+            if cached_attr.is_some_and(|attr| attr.gl_vbuf == buffer) {
+                unsafe { glDisableVertexAttribArray(attr_index as GLuint) };
+                *cached_attr = None;
+            }
+        }
+    }
+
+    /// Drops every cached reference to `texture`, which is about to be
+    /// deleted. GL resets the units it was bound to back to texture 0, and
+    /// may reuse the name for the next texture that gets created.
+    pub fn forget_texture(&mut self, texture: GLuint) {
+        for cached in &mut self.textures {
+            if cached.texture == texture {
+                cached.texture = 0;
+            }
+        }
+        if self.stored_texture == texture {
+            self.stored_texture = 0;
+        }
+    }
+
     pub fn clear_texture_bindings(&mut self) {
         for ix in 0..MAX_SHADERSTAGE_IMAGES {
             if self.textures[ix].texture != 0 {
@@ -125,17 +176,6 @@ impl GlCache {
                     texture: 0,
                 };
             }
-        }
-    }
-
-    pub fn clear_vertex_attributes(&mut self) {
-        for attr_index in 0..MAX_VERTEX_ATTRIBUTES {
-            let cached_attr = &mut self.attributes[attr_index];
-
-            if cached_attr.is_some() {
-                unsafe { glDisableVertexAttribArray(attr_index as GLuint) };
-            }
-            *cached_attr = None;
         }
     }
 }

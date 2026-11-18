@@ -144,7 +144,7 @@ pub fn __private_api_log_lit(
     _level: Level,
     &(_target, _module_path, _file, _line): &(&str, &'static str, &'static str, u32),
 ) {
-    eprintln!("{}", message);
+    eprintln!("{message}");
 }
 
 #[cfg(target_arch = "wasm32")]

@@ -1,4 +1,4 @@
-#![allow(non_upper_case_globals, non_snake_case)]
+use core::ffi::c_long;
 
 // Drag-n-Drop specification at
 // https://freedesktop.org/wiki/Specifications/XDND/
@@ -14,9 +14,9 @@ use super::libx11::*;
 
 #[derive(Default)]
 pub struct X11DnD {
-    source: Window,        // source window
-    version: libc::c_long, // version of XDnD, should be 5
-    format: Atom,          // we want UTF8_STRING for the paths of the dropped files
+    source: Window,  // source window
+    version: c_long, // version of XDnD, should be 5
+    format: Atom,    // we want UTF8_STRING for the paths of the dropped files
 }
 
 impl super::X11Display {

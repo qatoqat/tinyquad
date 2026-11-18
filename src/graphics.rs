@@ -155,7 +155,7 @@ impl VertexFormat {
     /// Size in bytes
     pub fn size_bytes(&self) -> i32 {
         match self {
-            VertexFormat::Float1 => 1 * 4,
+            VertexFormat::Float1 => 4,
             VertexFormat::Float2 => 2 * 4,
             VertexFormat::Float3 => 3 * 4,
             VertexFormat::Float4 => 4 * 4,
@@ -163,11 +163,11 @@ impl VertexFormat {
             VertexFormat::Byte2 => 2,
             VertexFormat::Byte3 => 3,
             VertexFormat::Byte4 => 4,
-            VertexFormat::Short1 => 1 * 2,
+            VertexFormat::Short1 => 2,
             VertexFormat::Short2 => 2 * 2,
             VertexFormat::Short3 => 3 * 2,
             VertexFormat::Short4 => 4 * 2,
-            VertexFormat::Int1 => 1 * 4,
+            VertexFormat::Int1 => 4,
             VertexFormat::Int2 => 2 * 4,
             VertexFormat::Int3 => 3 * 4,
             VertexFormat::Int4 => 4 * 4,
@@ -332,7 +332,7 @@ impl TextureFormat {
             TextureFormat::RGBA16F => 8 * square,
             TextureFormat::Depth => 2 * square,
             TextureFormat::Depth32 => 4 * square,
-            TextureFormat::Alpha => 1 * square,
+            TextureFormat::Alpha => square,
         }
     }
 }
@@ -993,9 +993,9 @@ impl<'a> BufferSource<'a> {
     ///
     /// For vertex buffers it is OK to use `empty::<u8>(byte_size);`
     pub fn empty<T>(size: usize) -> BufferSource<'a> {
-        let element_size = std::mem::size_of::<T>();
+        let element_size = size_of::<T>();
         BufferSource::Empty {
-            size: size * std::mem::size_of::<T>(),
+            size: size * size_of::<T>(),
             element_size,
         }
     }
@@ -1003,8 +1003,8 @@ impl<'a> BufferSource<'a> {
     pub fn slice<T>(data: &'a [T]) -> BufferSource<'a> {
         BufferSource::Slice(Arg {
             ptr: data.as_ptr() as _,
-            size: std::mem::size_of_val(data),
-            element_size: std::mem::size_of::<T>(),
+            size: size_of_val(data),
+            element_size: size_of::<T>(),
             is_slice: true,
             _phantom: std::marker::PhantomData,
         })
@@ -1026,8 +1026,8 @@ impl<'a> UniformsSource<'a> {
     pub fn table<T>(data: &'a T) -> UniformsSource<'a> {
         Self(Arg {
             ptr: data as *const T as _,
-            size: std::mem::size_of_val(data),
-            element_size: std::mem::size_of::<T>(),
+            size: size_of_val(data),
+            element_size: size_of::<T>(),
             is_slice: false,
             _phantom: std::marker::PhantomData,
         })
@@ -1233,7 +1233,7 @@ pub trait RenderingBackend {
     /// is recommended instead.
     fn render_pass_texture(&self, render_pass: RenderPass) -> TextureId {
         let textures = self.render_pass_color_attachments(render_pass);
-        #[allow(clippy::len_zero)]
+        #[expect(clippy::len_zero)]
         if textures.len() == 0 {
             panic!("depth-only render pass");
         }

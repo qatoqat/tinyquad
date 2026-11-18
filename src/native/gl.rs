@@ -1,4 +1,4 @@
-#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
+#![expect(non_camel_case_types, non_snake_case, non_upper_case_globals)]
 
 pub type GLenum = ::core::ffi::c_uint;
 pub type GLboolean = ::core::ffi::c_uchar;

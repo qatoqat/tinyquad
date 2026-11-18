@@ -6,7 +6,7 @@
 //! decorations as the X11 backend. If it's not available then no decorations
 //! will be drawn at all.
 
-#![allow(static_mut_refs)]
+#![expect(static_mut_refs)]
 
 use super::*;
 use crate::{wl_request, wl_request_constructor};
@@ -328,7 +328,7 @@ unsafe extern "C" fn libdecor_handle_error(
 ) {
     unsafe {
         let message = core::ffi::CStr::from_ptr(message).to_str().unwrap();
-        eprintln!("{}", message);
+        eprintln!("{message}");
     }
 }
 static mut LIBDECOR_INTERFACE: libdecor_interface = libdecor_interface {
@@ -374,7 +374,7 @@ mod fallback {
         pub right_decoration: Decoration,
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     unsafe fn create_decoration(
         display: &mut WaylandPayload,
         compositor: *mut wl_compositor,

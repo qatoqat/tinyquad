@@ -1,4 +1,4 @@
-#![allow(non_camel_case_types, non_upper_case_globals, dead_code)]
+#![expect(non_camel_case_types, non_upper_case_globals, dead_code)]
 
 pub const WL_DISPLAY_SYNC: u32 = 0;
 pub const WL_DISPLAY_GET_REGISTRY: u32 = 1;

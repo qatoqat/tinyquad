@@ -18,7 +18,7 @@ use {
     },
     std::{
         cell::RefCell,
-        os::raw::c_void,
+        ffi::c_void,
         sync::{Arc, Mutex, mpsc},
     },
 };
@@ -85,7 +85,7 @@ impl IosDisplay {
 
 // The `&mut IosDisplay` comes from a display pointer stored in the view's ivar,
 // not from `this` itself, so `&Object` input is not actually aliased.
-#[allow(clippy::mut_from_ref)]
+#[expect(clippy::mut_from_ref)]
 fn get_window_payload(this: &Object) -> &mut IosDisplay {
     unsafe {
         let ptr: *mut c_void = *this.get_ivar("display_ptr");
@@ -115,10 +115,10 @@ fn dispatch_message(payload: &mut IosDisplay, msg: Message) {
             }
         }
         Message::Character { character } => {
-            if let Some(character) = char::from_u32(character) {
-                if let Some(ref mut event_handler) = payload.event_handler {
-                    event_handler.char_event(character, Default::default(), false);
-                }
+            if let Some(character) = char::from_u32(character)
+                && let Some(ref mut event_handler) = payload.event_handler
+            {
+                event_handler.char_event(character, Default::default(), false);
             }
         }
         Message::KeyDown { keycode } => {
@@ -605,7 +605,6 @@ pub fn define_app_delegate() -> *const Class {
 
             // `MainThreadState` holds ObjC object pointers, so this `Arc` can never be
             // `Send`: it is shared between the event loop and the Metal render callbacks.
-            #[allow(clippy::arc_with_non_send_sync)]
             let state_original = Arc::new(Mutex::new(MainThreadState {
                 paused: true,
                 update_requested: true,
@@ -862,7 +861,7 @@ pub fn load_file<F: Fn(crate::fs::Response) + 'static>(path: &str, on_loaded: F)
 
 // this is the way to pass argument to UiApplicationMain
 // this static will be used exactly once, to .take() the "run" arguments
-#[allow(clippy::type_complexity)]
+#[expect(clippy::type_complexity)]
 static mut RUN_ARGS: Option<(Box<dyn FnOnce() -> Box<dyn EventHandler>>, Conf)> = None;
 
 pub unsafe fn run<F>(conf: Conf, f: F)
@@ -878,7 +877,7 @@ where
         }));
 
         let argc = 1;
-        let mut argv = b"Tinyquad\0" as *const u8 as *mut i8;
+        let mut argv = c"Tinyquad".as_ptr().cast_mut();
 
         let class: ObjcId = msg_send!(define_app_delegate(), class);
         let class_string = frameworks::NSStringFromClass(class as _);

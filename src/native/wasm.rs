@@ -220,7 +220,7 @@ impl crate::native::Clipboard for Clipboard {
 
 #[unsafe(no_mangle)]
 // JS-entry callback: reads the buffer behind the raw pointer handed over from the JS glue.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[expect(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn on_clipboard_paste(msg: *mut u8, len: usize) {
     let msg = unsafe { String::from_raw_parts(msg, len, len) };
 
@@ -362,7 +362,7 @@ pub extern "C" fn on_files_dropped_finish() {
 
 #[unsafe(no_mangle)]
 // JS-entry callback: reads the buffers behind the raw pointers handed over from the JS glue.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[expect(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn on_file_dropped(
     path: *mut u8,
     path_len: usize,

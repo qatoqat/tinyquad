@@ -55,17 +55,17 @@ pub mod linux {
 #[cfg(target_os = "windows")]
 mod windows {
     use super::Error;
-    use winapi::{
-        shared::minwindef::HINSTANCE,
-        um::libloaderapi::{FreeLibrary, GetProcAddress, LoadLibraryA},
+    use windows_sys::Win32::{
+        Foundation::{FreeLibrary, HMODULE},
+        System::LibraryLoader::{GetProcAddress, LoadLibraryA},
     };
 
-    pub struct Module(pub HINSTANCE);
+    pub struct Module(pub HMODULE);
 
     impl Module {
         pub fn load(path: &str) -> Result<Self, Error> {
             let cpath = std::ffi::CString::new(path).unwrap();
-            let library = unsafe { LoadLibraryA(cpath.as_ptr()) };
+            let library = unsafe { LoadLibraryA(cpath.as_ptr().cast()) };
             if library.is_null() {
                 return Err(Error::DlOpenError(path.to_string()));
             }
@@ -73,10 +73,9 @@ mod windows {
         }
         pub fn get_symbol<F: Sized>(&self, name: &str) -> Result<F, Error> {
             let cname = std::ffi::CString::new(name).unwrap();
-            let proc = unsafe { GetProcAddress(self.0, cname.as_ptr() as *const _) };
-            if proc.is_null() {
+            let Some(proc) = (unsafe { GetProcAddress(self.0, cname.as_ptr().cast()) }) else {
                 return Err(Error::DlSymError(name.to_string()));
-            }
+            };
             Ok(unsafe { std::mem::transmute_copy(&proc) })
         }
     }

@@ -16,7 +16,7 @@ use {
     },
     std::{
         collections::HashMap,
-        os::raw::c_void,
+        ffi::c_void,
         sync::{Condvar, Mutex, mpsc::Receiver},
         time::{Duration, Instant},
     },
@@ -117,12 +117,11 @@ impl MacosDisplay {
         let event_type: u64 = unsafe { msg_send![event, type] };
         if event_type == NSEventType::NSKeyUp as u64 {
             let mods = get_event_key_modifier(event);
-            if mods.logo {
-                if let Some(key) = get_event_keycode(event) {
-                    if let Some(event_handler) = self.context() {
-                        event_handler.key_up_event(key, mods);
-                    }
-                }
+            if mods.logo
+                && let Some(key) = get_event_keycode(event)
+                && let Some(event_handler) = self.context()
+            {
+                event_handler.key_up_event(key, mods);
             }
         }
     }
@@ -372,10 +371,10 @@ pub fn define_cocoa_window_delegate() -> *const Class {
 
     extern "C" fn window_did_resize(this: &Object, _: Sel, _: ObjcId) {
         let payload = get_window_payload(this);
-        if let Some((w, h)) = unsafe { payload.update_dimensions() } {
-            if let Some(event_handler) = payload.context() {
-                event_handler.resize_event(w as _, h as _);
-            }
+        if let Some((w, h)) = unsafe { payload.update_dimensions() }
+            && let Some(event_handler) = payload.context()
+        {
+            event_handler.resize_event(w as _, h as _);
         }
     }
 
@@ -395,10 +394,10 @@ pub fn define_cocoa_window_delegate() -> *const Class {
 
     extern "C" fn window_did_change_screen(this: &Object, _: Sel, _: ObjcId) {
         let payload = get_window_payload(this);
-        if let Some((w, h)) = unsafe { payload.update_dimensions() } {
-            if let Some(event_handler) = payload.context() {
-                event_handler.resize_event(w as _, h as _);
-            }
+        if let Some((w, h)) = unsafe { payload.update_dimensions() }
+            && let Some(event_handler) = payload.context()
+        {
+            event_handler.resize_event(w as _, h as _);
         }
     }
     extern "C" fn window_did_enter_fullscreen(this: &Object, _: Sel, _: ObjcId) {
@@ -588,26 +587,26 @@ unsafe fn view_base_decl(decl: &mut ClassDecl) {
             let payload = get_window_payload(this);
             let mods = get_event_key_modifier(event);
             let repeat: bool = unsafe { msg_send!(event, isARepeat) };
-            if let Some(key) = get_event_keycode(event) {
-                if let Some(event_handler) = payload.context() {
-                    event_handler.key_down_event(key, mods, repeat);
-                }
+            if let Some(key) = get_event_keycode(event)
+                && let Some(event_handler) = payload.context()
+            {
+                event_handler.key_down_event(key, mods, repeat);
             }
 
-            if let Some(character) = get_event_char(event) {
-                if let Some(event_handler) = payload.context() {
-                    event_handler.char_event(character, mods, repeat);
-                }
+            if let Some(character) = get_event_char(event)
+                && let Some(event_handler) = payload.context()
+            {
+                event_handler.char_event(character, mods, repeat);
             }
         }
 
         extern "C" fn key_up(this: &Object, _sel: Sel, event: ObjcId) {
             let payload = get_window_payload(this);
             let mods = get_event_key_modifier(event);
-            if let Some(key) = get_event_keycode(event) {
-                if let Some(event_handler) = payload.context() {
-                    event_handler.key_up_event(key, mods);
-                }
+            if let Some(key) = get_event_keycode(event)
+                && let Some(event_handler) = payload.context()
+            {
+                event_handler.key_up_event(key, mods);
             }
         }
 
@@ -853,10 +852,10 @@ pub fn define_opengl_view_class() -> *const Class {
     extern "C" fn reshape(this: &Object, _sel: Sel) {
         let payload = get_window_payload(this);
         unsafe {
-            if let Some((w, h)) = payload.update_dimensions() {
-                if let Some(event_handler) = payload.context() {
-                    event_handler.resize_event(w as _, h as _);
-                }
+            if let Some((w, h)) = payload.update_dimensions()
+                && let Some(event_handler) = payload.context()
+            {
+                event_handler.resize_event(w as _, h as _);
             }
         }
     }
@@ -866,10 +865,10 @@ pub fn define_opengl_view_class() -> *const Class {
         let payload = get_window_payload(this);
         unsafe {
             // Need this update_dimensions so it sets right dpi_scale at the beggining
-            if let Some((w, h)) = payload.update_dimensions() {
-                if let Some(event_handler) = payload.context() {
-                    event_handler.resize_event(w as _, h as _);
-                }
+            if let Some((w, h)) = payload.update_dimensions()
+                && let Some(event_handler) = payload.context()
+            {
+                event_handler.resize_event(w as _, h as _);
             }
             let current_runloop = msg_send_![class!(NSRunLoop), currentRunLoop];
             let current_mode: ObjcId = msg_send![current_runloop, currentMode];
@@ -921,10 +920,10 @@ pub fn define_metal_view_class() -> *const Class {
         unsafe {
             // Per-frame refresh matching the OpenGL path — otherwise
             // dpi_scale stays at the startup 1.0 default on Retina.
-            if let Some((w, h)) = payload.update_dimensions() {
-                if let Some(event_handler) = payload.context() {
-                    event_handler.resize_event(w as _, h as _);
-                }
+            if let Some((w, h)) = payload.update_dimensions()
+                && let Some(event_handler) = payload.context()
+            {
+                event_handler.resize_event(w as _, h as _);
             }
             let current_runloop = msg_send_![class!(NSRunLoop), currentRunLoop];
             let current_mode: ObjcId = msg_send![current_runloop, currentMode];
@@ -949,7 +948,7 @@ pub fn define_metal_view_class() -> *const Class {
 
 // The `&mut MacosDisplay` comes from a display pointer stored in the view's ivar,
 // not from `this` itself, so `&Object` input is not actually aliased.
-#[allow(clippy::mut_from_ref)]
+#[expect(clippy::mut_from_ref)]
 fn get_window_payload(this: &Object) -> &mut MacosDisplay {
     unsafe {
         let ptr: *mut c_void = *this.get_ivar("display_ptr");
@@ -977,7 +976,7 @@ unsafe fn create_metal_view(_: &mut MacosDisplay, sample_count: i32, _: bool) ->
     }
 }
 
-#[allow(clippy::vec_init_then_push)]
+#[expect(clippy::vec_init_then_push)]
 unsafe fn create_opengl_view(
     display: &mut MacosDisplay,
     sample_count: i32,
@@ -1098,7 +1097,7 @@ impl FramePacer {
     fn new() -> Option<Self> {
         unsafe {
             let mut display_link: CVDisplayLinkRef = std::ptr::null_mut();
-            if CVDisplayLinkCreateWithActiveCGDisplays(&mut display_link as *mut _) != 0
+            if CVDisplayLinkCreateWithActiveCGDisplays(&mut display_link) != 0
                 || display_link.is_null()
             {
                 return None;

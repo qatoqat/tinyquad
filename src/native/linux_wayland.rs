@@ -1,4 +1,4 @@
-#![allow(dead_code, static_mut_refs)]
+#![expect(dead_code, static_mut_refs)]
 
 mod libwayland_client;
 mod libwayland_egl;
@@ -100,7 +100,7 @@ impl WaylandPayload {
                 // if key repeat takes place
                 if fds[1].revents & libc::POLLIN == 1 {
                     let mut count: [libc::size_t; 1] = [0];
-                    let n_bits = core::mem::size_of::<libc::size_t>();
+                    let n_bits = size_of::<libc::size_t>();
                     assert_eq!(
                         libc::read(
                             self.keyboard_context.timerfd,
@@ -314,10 +314,10 @@ impl KeyboardContext {
             // To obtain the underlying character, we do need to provide the modifiers
             let keysym = (libxkb.xkb_state_key_get_one_sym)(xkb_state, key + 8);
             let chr = (libxkb.xkb_keysym_to_utf32)(keysym);
-            if chr > 0 {
-                if let Some(chr) = char::from_u32(chr) {
-                    events.push(WaylandEvent::Char(chr, keymods, repeat));
-                }
+            if chr > 0
+                && let Some(chr) = char::from_u32(chr)
+            {
+                events.push(WaylandEvent::Char(chr, keymods, repeat));
             }
         }
     }
@@ -899,12 +899,12 @@ unsafe extern "C" fn touch_handle_up(
 ) {
     unsafe {
         let display: &mut WaylandPayload = &mut *(data as *mut _);
-        if display.focused_window == display.surface {
-            if let Some((x, y)) = display.touch_positions.remove(&id) {
-                display
-                    .events
-                    .push(WaylandEvent::Touch(crate::TouchPhase::Ended, id as _, x, y));
-            }
+        if display.focused_window == display.surface
+            && let Some((x, y)) = display.touch_positions.remove(&id)
+        {
+            display
+                .events
+                .push(WaylandEvent::Touch(crate::TouchPhase::Ended, id as _, x, y));
         }
     }
 }
@@ -1171,7 +1171,7 @@ where
         );
 
         let (tx, rx) = std::sync::mpsc::channel();
-        let clipboard = Box::new(clipboard::WaylandClipboard::new(&mut display as *mut _));
+        let clipboard = Box::new(clipboard::WaylandClipboard::new(&mut display));
         crate::set_display(NativeDisplayData {
             high_dpi: conf.high_dpi,
             dpi_scale: 1., // At this point dpi_scale is not known to us

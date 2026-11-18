@@ -28,7 +28,7 @@ jobs:
             packages: libx11-dev libxi-dev libgl1-mesa-dev gcc-mingw-w64
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install packages (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -64,7 +64,7 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install packages (Linux)
         run: |
           sudo apt-get update
@@ -74,6 +74,23 @@ jobs:
         run: cargo test
       - name: Run tests with log-impl
         run: cargo test --features log-impl
+      - name: Run example tests
+        run: cargo test --release --example rainy_night --example view_toggle
+
+  web-demo:
+    name: Web demo (rainy_night)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Build
+        run: examples/rainy_night/web/build.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: rainy_night-web
+          path: target/web/rainy_night
 
   # The unit tests are pure logic (no window/GPU needed), so they can
   # run on desktop runners even though the platform backends
@@ -87,7 +104,7 @@ jobs:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: Run tests
         run: cargo test
@@ -96,7 +113,7 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install packages (Linux)
         run: |
           sudo apt-get update
@@ -104,7 +121,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-          targets: aarch64-apple-darwin,x86_64-pc-windows-gnu,wasm32-unknown-unknown,aarch64-linux-android
+          targets: aarch64-apple-darwin,aarch64-apple-ios,x86_64-pc-windows-gnu,wasm32-unknown-unknown,aarch64-linux-android
       - name: rustfmt
         run: cargo fmt --all -- --check
       - name: clippy
@@ -114,7 +131,7 @@ jobs:
       # these link — check-only — so they need no SDKs or system libs.
       - name: clippy (cross-target)
         run: |
-          for target in aarch64-apple-darwin x86_64-pc-windows-gnu wasm32-unknown-unknown aarch64-linux-android; do
+          for target in aarch64-apple-darwin aarch64-apple-ios x86_64-pc-windows-gnu wasm32-unknown-unknown aarch64-linux-android; do
             cargo clippy --target $target --all-targets -- -D warnings
           done
 
@@ -130,7 +147,7 @@ jobs:
           - i686-linux-android
           - x86_64-linux-android
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -145,11 +162,11 @@ jobs:
     name: Android APK
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
@@ -159,17 +176,17 @@ jobs:
         run: extras/android/build_apk.sh
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: quad_android-apk
           path: target/android/quad_android.apk
 
   msrv:
-    name: MSRV Check (1.85)
+    name: MSRV Check (1.100)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.85.0
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.100.0
       - name: Verify MSRV
         # Only the library: dev-dependencies (examples/tests) may require newer rustc.
         run: cargo check

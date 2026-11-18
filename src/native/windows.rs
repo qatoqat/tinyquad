@@ -1,4 +1,11 @@
-use std::{ffi::OsString, os::windows::ffi::OsStringExt, path::PathBuf};
+use std::{
+    ffi::{OsString, c_void},
+    mem,
+    os::windows::ffi::OsStringExt,
+    path::PathBuf,
+    ptr,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use crate::{
     CursorIcon, EventHandler,
@@ -7,92 +14,78 @@ use crate::{
     native::{NativeDisplayData, Request},
 };
 
-use winapi::{
-    shared::{
-        hidusage::{HID_USAGE_GENERIC_MOUSE, HID_USAGE_PAGE_GENERIC},
-        minwindef::{DWORD, HIWORD, LOWORD, LPARAM, LRESULT, MAX_PATH, TRUE, UINT, WPARAM},
-        ntdef::NULL,
-        windef::{HBRUSH, HCURSOR, HDC, HICON, HWND, POINT, RECT},
-        windowsx::{GET_X_LPARAM, GET_Y_LPARAM},
+use windows_sys::Win32::{
+    Devices::HumanInterfaceDevice::{HID_USAGE_GENERIC_MOUSE, HID_USAGE_PAGE_GENERIC},
+    Foundation::{HWND, LPARAM, LRESULT, MAX_PATH, POINT, RECT, TRUE, WPARAM},
+    Graphics::{
+        Gdi::{
+            BI_BITFIELDS, BITMAPINFO, BITMAPV5HEADER, BLACK_BRUSH, ClientToScreen, CreateBitmap,
+            CreateDIBSection, DIB_RGB_COLORS, DeleteObject, GetDC, GetStockObject, HDC,
+            MONITOR_DEFAULTTONEAREST, MonitorFromPoint, ReleaseDC, SC_SCREENSAVE, SetRect,
+        },
+        OpenGL::SwapBuffers,
     },
-    um::{
-        imm::{HIMC, ImmGetContext, ImmReleaseContext},
-        libloaderapi::{GetModuleHandleW, GetProcAddress},
-        shellapi::{DragAcceptFiles, DragQueryFileW, HDROP},
-        shellscalingapi::*,
-        wingdi::*,
-        winuser::*,
+    System::LibraryLoader::{GetModuleHandleW, GetProcAddress},
+    UI::{
+        HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI},
+        Input::{
+            GetRawInputData,
+            Ime::{
+                CANDIDATEFORM, CFS_CANDIDATEPOS, CFS_POINT, COMPOSITIONFORM, GCS_RESULTSTR,
+                IACE_CHILDREN, IACE_DEFAULT, IMN_SETOPENSTATUS, ImmAssociateContext,
+                ImmAssociateContextEx, ImmCreateContext, ImmGetCompositionStringW, ImmGetContext,
+                ImmGetOpenStatus, ImmReleaseContext, ImmSetCandidateWindow,
+                ImmSetCompositionWindow, ImmSetOpenStatus,
+            },
+            KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT},
+            MOUSE_MOVE_ABSOLUTE, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER, RID_INPUT,
+            RegisterRawInputDevices,
+        },
+        Shell::{DragAcceptFiles, DragQueryFileW, HDROP},
+        WindowsAndMessaging::*,
     },
 };
 
-// IME constants
-const GCS_RESULTSTR: DWORD = 0x0800;
-
-// IME message constants
-const WM_IME_SETCONTEXT: UINT = 0x0281;
-const WM_IME_NOTIFY: UINT = 0x0282;
-const WM_IME_CHAR: UINT = 0x0286;
-const WM_IME_STARTCOMPOSITION: UINT = 0x010D;
-const WM_IME_ENDCOMPOSITION: UINT = 0x010E;
-const WM_IME_COMPOSITION: UINT = 0x010F;
-const WM_INPUTLANGCHANGE: UINT = 0x0051;
-const WM_INPUTLANGCHANGEREQUEST: UINT = 0x0050;
-
-// Window focus messages
-const WM_SETFOCUS: UINT = 0x0007;
-const WM_KILLFOCUS: UINT = 0x0008;
-
 /// Global flag tracking whether IME has been explicitly disabled by the user.
 /// This is controlled via `show_keyboard(bool)` API calls.
-use std::sync::atomic::AtomicBool;
 static IME_USER_DISABLED: AtomicBool = AtomicBool::new(false);
 
-// IME composition form constants
-const CFS_POINT: DWORD = 0x0002;
-const CFS_CANDIDATEPOS: DWORD = 0x0040;
-
-// ImmAssociateContextEx flags
-const IACE_DEFAULT: DWORD = 0x0010;
-
-// COMPOSITIONFORM structure
-#[repr(C)]
-#[allow(non_snake_case, non_camel_case_types, clippy::upper_case_acronyms)]
-struct COMPOSITIONFORM {
-    dwStyle: DWORD,
-    ptCurrentPos: POINT,
-    rcArea: RECT,
+/// Low 16 bits of a message parameter (`LOWORD` in the Windows headers).
+const fn loword(v: usize) -> u16 {
+    v as u16
 }
 
-// CANDIDATEFORM structure
-#[repr(C)]
-#[allow(non_snake_case, non_camel_case_types, clippy::upper_case_acronyms)]
-struct CANDIDATEFORM {
-    dwIndex: DWORD,
-    dwStyle: DWORD,
-    ptCurrentPos: POINT,
-    rcArea: RECT,
+/// Bits 16..32 of a message parameter (`HIWORD` in the Windows headers).
+const fn hiword(v: usize) -> u16 {
+    (v >> 16) as u16
 }
 
-// Link to imm32.dll for IME support
-#[link(name = "imm32")]
-unsafe extern "system" {
-    fn ImmGetCompositionStringW(
-        himc: HIMC,
-        index: DWORD,
-        buf: *mut std::ffi::c_void,
-        len: DWORD,
-    ) -> i32;
-    fn ImmAssociateContextEx(hwnd: HWND, himc: HIMC, flags: DWORD) -> i32;
-    fn ImmAssociateContext(hwnd: HWND, himc: HIMC) -> HIMC;
-    fn ImmCreateContext() -> HIMC;
-    fn ImmSetCompositionWindow(himc: HIMC, lpCompForm: *const COMPOSITIONFORM) -> i32;
-    fn ImmSetCandidateWindow(himc: HIMC, lpCandidate: *const CANDIDATEFORM) -> i32;
-    fn ImmGetOpenStatus(himc: HIMC) -> i32;
-    fn ImmSetOpenStatus(himc: HIMC, fOpen: i32) -> i32;
+/// Signed client-area x coordinate packed in an `LPARAM` (`GET_X_LPARAM`).
+const fn get_x_lparam(lparam: LPARAM) -> i32 {
+    loword(lparam as usize) as i16 as i32
 }
 
-// IME Association flags
-const IACE_CHILDREN: DWORD = 0x0001;
+/// Signed client-area y coordinate packed in an `LPARAM` (`GET_Y_LPARAM`).
+const fn get_y_lparam(lparam: LPARAM) -> i32 {
+    hiword(lparam as usize) as i16 as i32
+}
+
+// `{Get,Set}WindowLongPtrA` only exist as real exports on 64-bit Windows; on
+// 32-bit targets they are header macros for the plain `Long` variants.
+#[cfg(target_pointer_width = "64")]
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    GetWindowLongPtrA as get_window_long_ptr, SetWindowLongPtrA as set_window_long_ptr,
+};
+
+#[cfg(target_pointer_width = "32")]
+unsafe fn get_window_long_ptr(hwnd: HWND, index: WINDOW_LONG_PTR_INDEX) -> isize {
+    unsafe { GetWindowLongA(hwnd, index) as isize }
+}
+
+#[cfg(target_pointer_width = "32")]
+unsafe fn set_window_long_ptr(hwnd: HWND, index: WINDOW_LONG_PTR_INDEX, value: isize) -> isize {
+    unsafe { SetWindowLongA(hwnd, index, value as i32) as isize }
+}
 
 mod clipboard;
 mod keycodes;
@@ -132,7 +125,7 @@ impl WindowsDisplay {
             if grab {
                 update_clip_rect(self.wnd);
             } else {
-                ClipCursor(NULL as _);
+                ClipCursor(ptr::null());
             }
         }
     }
@@ -154,7 +147,7 @@ impl WindowsDisplay {
             let comp_form = COMPOSITIONFORM {
                 dwStyle: CFS_POINT,
                 ptCurrentPos: POINT { x, y },
-                rcArea: std::mem::zeroed(),
+                rcArea: mem::zeroed(),
             };
             ImmSetCompositionWindow(himc, &comp_form);
 
@@ -163,7 +156,7 @@ impl WindowsDisplay {
                 dwIndex: 0,
                 dwStyle: CFS_CANDIDATEPOS,
                 ptCurrentPos: POINT { x, y },
-                rcArea: std::mem::zeroed(),
+                rcArea: mem::zeroed(),
             };
             ImmSetCandidateWindow(himc, &cand_form);
 
@@ -175,15 +168,11 @@ impl WindowsDisplay {
     /// When disabled, the IME will not process keyboard input, useful for game controls.
     fn set_ime_enabled(&mut self, enabled: bool) {
         unsafe {
-            if enabled {
-                IME_USER_DISABLED.store(false, std::sync::atomic::Ordering::Relaxed);
-                // Re-associate IME context with the window
-                ImmAssociateContextEx(self.wnd, std::ptr::null_mut(), IACE_DEFAULT);
-            } else {
-                IME_USER_DISABLED.store(true, std::sync::atomic::Ordering::Relaxed);
-                // Disassociate IME context from the window
-                ImmAssociateContextEx(self.wnd, std::ptr::null_mut(), 0);
-            }
+            IME_USER_DISABLED.store(!enabled, Ordering::Relaxed);
+            // Re-associate the default IME context with the window, or
+            // disassociate it (flags == 0 with a null context).
+            let flags = if enabled { IACE_DEFAULT } else { 0 };
+            ImmAssociateContextEx(self.wnd, ptr::null_mut(), flags);
         }
     }
 
@@ -202,7 +191,7 @@ impl WindowsDisplay {
             CursorIcon::NESWResize => IDC_SIZENESW,
             CursorIcon::NWSEResize => IDC_SIZENWSE,
         };
-        self.cursor = unsafe { LoadCursorW(NULL as _, cursor_name) };
+        self.cursor = unsafe { LoadCursorW(ptr::null_mut(), cursor_name) };
         unsafe { SetCursor(self.cursor) };
 
         self.user_cursor = cursor_icon != CursorIcon::Default;
@@ -213,28 +202,20 @@ impl WindowsDisplay {
         let mut final_new_width = new_width;
         let mut final_new_height = new_height;
 
-        let mut rect: RECT = unsafe { std::mem::zeroed() };
-        if unsafe { GetClientRect(self.wnd, &mut rect as *mut _ as _) } != 0 {
+        let mut rect: RECT = unsafe { mem::zeroed() };
+        if unsafe { GetClientRect(self.wnd, &mut rect) } != 0 {
             x = rect.left;
             y = rect.bottom;
         }
 
-        rect.right = (rect.left + new_width as i32) as _;
-        rect.top = (rect.bottom - new_height as i32) as _;
+        rect.right = rect.left + new_width as i32;
+        rect.top = rect.bottom - new_height as i32;
 
         let win_style = get_win_style(self.fullscreen, self.window_resizable);
-        let win_style_ex: DWORD = unsafe { GetWindowLongA(self.wnd, GWL_EXSTYLE) as _ };
-        if unsafe {
-            AdjustWindowRectEx(
-                &mut rect as *mut _ as _,
-                win_style,
-                false as _,
-                win_style_ex,
-            )
-        } != 0
-        {
-            final_new_width = (rect.right - rect.left) as _;
-            final_new_height = (rect.bottom - rect.top) as _;
+        let win_style_ex = unsafe { GetWindowLongA(self.wnd, GWL_EXSTYLE) } as WINDOW_EX_STYLE;
+        if unsafe { AdjustWindowRectEx(&mut rect, win_style, 0, win_style_ex) } != 0 {
+            final_new_width = (rect.right - rect.left) as u32;
+            final_new_height = (rect.bottom - rect.top) as u32;
         }
 
         unsafe {
@@ -251,8 +232,8 @@ impl WindowsDisplay {
     }
     /// Set the window position in screen coordinates.
     fn set_window_position(&mut self, new_x: u32, new_y: u32) {
-        let mut rect: RECT = unsafe { std::mem::zeroed() };
-        if unsafe { GetClientRect(self.wnd, &mut rect as *mut _ as _) } != 0 {
+        let mut rect: RECT = unsafe { mem::zeroed() };
+        if unsafe { GetClientRect(self.wnd, &mut rect) } != 0 {
             // SWP_NOSIZE keeps the current window size, so only the position matters.
             unsafe {
                 SetWindowPos(
@@ -269,15 +250,12 @@ impl WindowsDisplay {
     }
 
     fn set_fullscreen(&mut self, fullscreen: bool) {
-        self.fullscreen = fullscreen as _;
+        self.fullscreen = fullscreen;
 
-        let win_style: DWORD = get_win_style(self.fullscreen, self.window_resizable);
+        let win_style = get_win_style(self.fullscreen, self.window_resizable);
 
         unsafe {
-            #[cfg(target_arch = "x86_64")]
-            SetWindowLongPtrA(self.wnd, GWL_STYLE, win_style as _);
-            #[cfg(target_arch = "x86")]
-            SetWindowLong(self.wnd, GWL_STYLE, win_style as _);
+            set_window_long_ptr(self.wnd, GWL_STYLE, win_style as isize);
 
             if self.fullscreen {
                 SetWindowPos(
@@ -312,11 +290,11 @@ impl WindowsDisplay {
     }
 }
 
-fn get_win_style(is_fullscreen: bool, is_resizable: bool) -> DWORD {
+fn get_win_style(is_fullscreen: bool, is_resizable: bool) -> WINDOW_STYLE {
     if is_fullscreen {
         WS_POPUP | WS_SYSMENU | WS_VISIBLE
     } else {
-        let mut win_style: DWORD =
+        let mut win_style =
             WS_CLIPSIBLINGS | WS_CLIPCHILDREN | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
 
         if is_resizable {
@@ -331,9 +309,9 @@ unsafe fn update_clip_rect(hwnd: HWND) {
     unsafe {
         // Retrieve the screen coordinates of the client area,
         // and convert them into client coordinates.
-        let mut rect: RECT = std::mem::zeroed();
+        let mut rect: RECT = mem::zeroed();
 
-        GetClientRect(hwnd, &mut rect as *mut _ as _);
+        GetClientRect(hwnd, &mut rect);
         let mut upper_left = POINT {
             x: rect.left,
             y: rect.top,
@@ -343,60 +321,40 @@ unsafe fn update_clip_rect(hwnd: HWND) {
             y: rect.bottom,
         };
 
-        ClientToScreen(hwnd, &mut upper_left as *mut _ as _);
-        ClientToScreen(hwnd, &mut lower_right as *mut _ as _);
+        ClientToScreen(hwnd, &mut upper_left);
+        ClientToScreen(hwnd, &mut lower_right);
 
         SetRect(
-            &mut rect as *mut _ as _,
+            &mut rect,
             upper_left.x,
             upper_left.y,
             lower_right.x,
             lower_right.y,
         );
-        ClipCursor(&mut rect as *mut _ as _);
+        ClipCursor(&rect);
     }
 }
 
 unsafe fn key_mods() -> KeyMods {
-    unsafe {
-        let mut mods = KeyMods::default();
+    // The high bit of `GetKeyState` (i.e. a negative value) means "key is down".
+    let is_down = |vk: u16| unsafe { GetKeyState(vk as i32) } < 0;
 
-        if GetKeyState(VK_SHIFT) as u32 & (1u32 << 31) != 0 {
-            mods.shift = true;
-        }
-        if GetKeyState(VK_CONTROL) as u32 & (1u32 << 31) != 0 {
-            mods.ctrl = true;
-        }
-        if GetKeyState(VK_MENU) as u32 & (1u32 << 31) != 0 {
-            mods.alt = true;
-        }
-        if (GetKeyState(VK_LWIN) | GetKeyState(VK_RWIN)) as u32 & (1u32 << 31) != 0 {
-            mods.logo = true;
-        }
-
-        mods
+    KeyMods {
+        shift: is_down(VK_SHIFT),
+        ctrl: is_down(VK_CONTROL),
+        alt: is_down(VK_MENU),
+        logo: is_down(VK_LWIN) || is_down(VK_RWIN),
     }
 }
 
 unsafe extern "system" fn win32_wndproc(
     hwnd: HWND,
-    umsg: UINT,
+    umsg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
     unsafe {
-        let display_ptr: isize;
-
-        #[cfg(target_pointer_width = "64")]
-        {
-            display_ptr = GetWindowLongPtrA(hwnd, GWLP_USERDATA)
-        }
-
-        #[cfg(target_pointer_width = "32")]
-        {
-            display_ptr = GetWindowLong(hwnd, GWLP_USERDATA)
-        }
-
+        let display_ptr = get_window_long_ptr(hwnd, GWLP_USERDATA);
         if display_ptr == 0 {
             return DefWindowProcW(hwnd, umsg, wparam, lparam);
         }
@@ -427,7 +385,7 @@ unsafe extern "system" fn win32_wndproc(
                 return 0;
             }
             WM_SYSCOMMAND => {
-                match wparam & 0xFFF0 {
+                match (wparam & 0xFFF0) as u32 {
                     SC_SCREENSAVE | SC_MONITORPOWER => {
                         if payload.fullscreen {
                             // disable screen saver and blanking in fullscreen mode
@@ -449,7 +407,7 @@ unsafe extern "system" fn win32_wndproc(
                     update_clip_rect(hwnd);
                 }
 
-                let iconified = wparam == SIZE_MINIMIZED;
+                let iconified = wparam == SIZE_MINIMIZED as WPARAM;
                 if iconified != payload.iconified {
                     payload.iconified = iconified;
                     if iconified {
@@ -460,7 +418,7 @@ unsafe extern "system" fn win32_wndproc(
                 }
             }
             WM_SETCURSOR => {
-                if payload.user_cursor && LOWORD(lparam as _) == HTCLIENT as _ {
+                if payload.user_cursor && loword(lparam as usize) as u32 == HTCLIENT {
                     SetCursor(payload.cursor);
 
                     return 1;
@@ -486,18 +444,18 @@ unsafe extern "system" fn win32_wndproc(
             }
 
             WM_MOUSEMOVE => {
-                payload.mouse_x = GET_X_LPARAM(lparam) as f32 * payload.mouse_scale;
-                payload.mouse_y = GET_Y_LPARAM(lparam) as f32 * payload.mouse_scale;
+                payload.mouse_x = get_x_lparam(lparam) as f32 * payload.mouse_scale;
+                payload.mouse_y = get_y_lparam(lparam) as f32 * payload.mouse_scale;
                 // mouse enter was not handled by tinyquad anyway
                 // if !_sapp.win32_mouse_tracked {
                 //     _sapp.win32_mouse_tracked = true;
 
-                //     let mut tme: TRACKMOUSEEVENT = std::mem::zeroed();
+                //     let mut tme: TRACKMOUSEEVENT = mem::zeroed();
 
-                //     tme.cbSize = std::mem::size_of_val(&tme) as _;
+                //     tme.cbSize = size_of_val(&tme) as _;
                 //     tme.dwFlags = TME_LEAVE;
                 //     tme.hwndTrack = wnd;
-                //     TrackMouseEvent(&mut tme as *mut _);
+                //     TrackMouseEvent(&mut tme);
                 //     _sapp_win32_mouse_event(
                 //         sapp_event_type_SAPP_EVENTTYPE_MOUSE_ENTER,
                 //         sapp_mousebutton_SAPP_MOUSEBUTTON_INVALID,
@@ -515,25 +473,28 @@ unsafe extern "system" fn win32_wndproc(
             }
 
             WM_INPUT => {
-                let mut data: RAWINPUT = std::mem::zeroed();
-                let mut size = std::mem::size_of::<RAWINPUT>();
+                let mut data: RAWINPUT = mem::zeroed();
+                let mut size = size_of::<RAWINPUT>() as u32;
                 let get_succeed = GetRawInputData(
                     lparam as _,
                     RID_INPUT,
-                    &mut data as *mut _ as _,
-                    &mut size as *mut _ as _,
-                    std::mem::size_of::<RAWINPUTHEADER>() as _,
+                    (&raw mut data).cast(),
+                    &mut size,
+                    size_of::<RAWINPUTHEADER>() as u32,
                 );
-                if get_succeed as i32 == -1 {
+                if get_succeed == u32::MAX {
                     panic!("failed to retrieve raw input data");
                 }
 
+                // Only mouse devices are registered (see `run`), so the
+                // `mouse` variant of the union is the active one.
+                let mouse = data.data.mouse;
                 let mouse_scale = payload.mouse_scale;
-                let mut dx = data.data.mouse().lLastX as f32 * mouse_scale;
-                let mut dy = data.data.mouse().lLastY as f32 * mouse_scale;
+                let mut dx = mouse.lLastX as f32 * mouse_scale;
+                let mut dy = mouse.lLastY as f32 * mouse_scale;
 
                 // convert from normalised absolute coordinates
-                if (data.data.mouse().usFlags & MOUSE_MOVE_ABSOLUTE) == MOUSE_MOVE_ABSOLUTE {
+                if (mouse.usFlags & MOUSE_MOVE_ABSOLUTE) == MOUSE_MOVE_ABSOLUTE {
                     let (width, height) = {
                         let d = crate::native_display().lock().unwrap();
                         (d.screen_width as f32, d.screen_height as f32)
@@ -546,29 +507,21 @@ unsafe extern "system" fn win32_wndproc(
                 event_handler.raw_mouse_motion(dx, dy);
             }
 
-            WM_MOUSELEAVE => {
-                // mouse leave was not handled by tinyquad anyway
-                // _sapp.win32_mouse_tracked = false;
-                // _sapp_win32_mouse_event(
-                //     sapp_event_type_SAPP_EVENTTYPE_MOUSE_LEAVE,
-                //     sapp_mousebutton_SAPP_MOUSEBUTTON_INVALID,
-                // );
-            }
             WM_MOUSEWHEEL => {
-                event_handler.mouse_wheel_event(0.0, (HIWORD(wparam as _) as i16) as f32);
+                event_handler.mouse_wheel_event(0.0, hiword(wparam) as i16 as f32);
             }
 
             WM_MOUSEHWHEEL => {
-                event_handler.mouse_wheel_event((HIWORD(wparam as _) as i16) as f32, 0.0);
+                event_handler.mouse_wheel_event(hiword(wparam) as i16 as f32, 0.0);
             }
             WM_CHAR => {
                 let chr = wparam as u32;
-                let repeat = !!(lparam & 0x40000000) != 0;
+                let repeat = lparam & 0x40000000 != 0;
                 let mods = key_mods();
-                if chr > 0 {
-                    if let Some(chr) = char::from_u32(chr) {
-                        event_handler.char_event(chr, mods, repeat);
-                    }
+                if chr > 0
+                    && let Some(chr) = char::from_u32(chr)
+                {
+                    event_handler.char_event(chr, mods, repeat);
                 }
                 return 0;
             }
@@ -586,14 +539,13 @@ unsafe extern "system" fn win32_wndproc(
                 if (flags & GCS_RESULTSTR) != 0 {
                     let himc = ImmGetContext(hwnd);
                     if !himc.is_null() {
-                        let len =
-                            ImmGetCompositionStringW(himc, GCS_RESULTSTR, std::ptr::null_mut(), 0);
+                        let len = ImmGetCompositionStringW(himc, GCS_RESULTSTR, ptr::null_mut(), 0);
                         if len > 0 {
                             let mut buffer: Vec<u16> = vec![0; (len as usize / 2) + 1];
                             let actual_len = ImmGetCompositionStringW(
                                 himc,
                                 GCS_RESULTSTR,
-                                buffer.as_mut_ptr() as *mut _,
+                                buffer.as_mut_ptr().cast(),
                                 len as u32,
                             );
                             if actual_len > 0 {
@@ -616,7 +568,7 @@ unsafe extern "system" fn win32_wndproc(
                 return DefWindowProcW(hwnd, umsg, wparam, lparam);
             }
             WM_IME_SETCONTEXT => {
-                let user_disabled = IME_USER_DISABLED.load(std::sync::atomic::Ordering::Relaxed);
+                let user_disabled = IME_USER_DISABLED.load(Ordering::Relaxed);
 
                 // If user explicitly disabled IME, don't auto-restore
                 if user_disabled {
@@ -633,7 +585,7 @@ unsafe extern "system" fn win32_wndproc(
                 // Set candidate window position when IME starts composition
                 let himc = ImmGetContext(hwnd);
                 if !himc.is_null() {
-                    let mut pt: POINT = std::mem::zeroed();
+                    let mut pt: POINT = mem::zeroed();
                     GetCaretPos(&mut pt);
 
                     let comp_form = COMPOSITIONFORM {
@@ -673,15 +625,12 @@ unsafe extern "system" fn win32_wndproc(
                 return DefWindowProcW(hwnd, umsg, wparam, lparam);
             }
             WM_IME_NOTIFY => {
-                const IMN_SETOPENSTATUS: WPARAM = 0x0008;
-
                 // Re-enable IME if it was unexpectedly closed (unless user disabled it)
-                if wparam == IMN_SETOPENSTATUS {
+                if wparam == IMN_SETOPENSTATUS as WPARAM {
                     let himc = ImmGetContext(hwnd);
                     if !himc.is_null() {
                         let open_status = ImmGetOpenStatus(himc);
-                        let user_disabled =
-                            IME_USER_DISABLED.load(std::sync::atomic::Ordering::Relaxed);
+                        let user_disabled = IME_USER_DISABLED.load(Ordering::Relaxed);
                         if open_status == 0 && !user_disabled {
                             ImmSetOpenStatus(himc, 1);
                         }
@@ -696,16 +645,16 @@ unsafe extern "system" fn win32_wndproc(
                 return DefWindowProcW(hwnd, umsg, wparam, lparam);
             }
             WM_KEYDOWN | WM_SYSKEYDOWN => {
-                let keycode_raw = HIWORD(lparam as _) as u32 & 0x1FF;
+                let keycode_raw = hiword(lparam as usize) as u32 & 0x1FF;
                 let keycode = keycodes::translate_keycode(keycode_raw);
                 let mods = key_mods();
-                let repeat = !!(lparam & 0x40000000) != 0;
+                let repeat = lparam & 0x40000000 != 0;
                 event_handler.key_down_event(keycode, mods, repeat);
                 // Pass to DefWindowProc for IME to work properly
                 return DefWindowProcW(hwnd, umsg, wparam, lparam);
             }
             WM_KEYUP | WM_SYSKEYUP => {
-                let keycode = HIWORD(lparam as _) as u32 & 0x1FF;
+                let keycode = hiword(lparam as usize) as u32 & 0x1FF;
                 let keycode = keycodes::translate_keycode(keycode);
                 let mods = key_mods();
                 event_handler.key_up_event(keycode, mods);
@@ -715,13 +664,13 @@ unsafe extern "system" fn win32_wndproc(
             WM_ENTERSIZEMOVE | WM_ENTERMENULOOP => {
                 SetTimer(
                     hwnd,
-                    &mut payload.modal_resizing_timer as *mut _ as usize,
+                    (&raw mut payload.modal_resizing_timer).addr(),
                     10,
                     None,
                 );
             }
             WM_TIMER => {
-                if wparam == &mut payload.modal_resizing_timer as *mut _ as usize {
+                if wparam == (&raw mut payload.modal_resizing_timer).addr() {
                     if payload.update_dimensions(hwnd) {
                         let d = crate::native_display().lock().unwrap();
                         let width = d.screen_width as f32;
@@ -741,25 +690,19 @@ unsafe extern "system" fn win32_wndproc(
                 }
             }
             WM_EXITSIZEMOVE | WM_EXITMENULOOP => {
-                KillTimer(hwnd, &mut payload.modal_resizing_timer as *mut _ as usize);
+                KillTimer(hwnd, (&raw mut payload.modal_resizing_timer).addr());
             }
             WM_DROPFILES => {
                 let hdrop = wparam as HDROP;
-                let mut path = core::mem::MaybeUninit::<[u16; MAX_PATH]>::uninit();
-                let num_drops = DragQueryFileW(hdrop, u32::MAX, std::ptr::null_mut(), 0);
+                let mut path = [0u16; MAX_PATH as usize];
+                let num_drops = DragQueryFileW(hdrop, u32::MAX, ptr::null_mut(), 0);
 
                 let mut d = crate::native_display().lock().unwrap();
                 d.dropped_files = Default::default();
                 for i in 0..num_drops {
-                    let path_ptr = path.as_mut_ptr() as *mut u16;
-                    let path_len = DragQueryFileW(hdrop, i, path_ptr, MAX_PATH as u32) as usize;
+                    let path_len = DragQueryFileW(hdrop, i, path.as_mut_ptr(), MAX_PATH) as usize;
                     if path_len > 0 {
-                        // SAFETY: `DragQueryFileW` initializes `path_ptr` up to `path_len`
-                        // elements before use, and we only access the initialized portion.
-                        let path = {
-                            let path = path.assume_init();
-                            PathBuf::from(OsString::from_wide(&path[0..path_len]))
-                        };
+                        let path = PathBuf::from(OsString::from_wide(&path[..path_len]));
                         if let Ok(bytes) = std::fs::read(&path) {
                             d.dropped_files.bytes.push(bytes);
                             d.dropped_files.paths.push(path);
@@ -768,14 +711,15 @@ unsafe extern "system" fn win32_wndproc(
                 }
             }
             WM_ACTIVATE => {
-                if LOWORD(wparam as _) == WA_ACTIVE || LOWORD(wparam as _) == WA_CLICKACTIVE {
+                let state = loword(wparam) as u32;
+                if state == WA_ACTIVE || state == WA_CLICKACTIVE {
                     event_handler.window_restored_event();
                 } else {
                     event_handler.window_minimized_event();
                 }
             }
             WM_SETFOCUS => {
-                let user_disabled = IME_USER_DISABLED.load(std::sync::atomic::Ordering::Relaxed);
+                let user_disabled = IME_USER_DISABLED.load(Ordering::Relaxed);
 
                 // Ensure IME context is available when window gains focus
                 if !user_disabled {
@@ -815,9 +759,9 @@ unsafe extern "system" fn win32_wndproc(
 
 unsafe fn create_win_icon_from_image(width: u32, height: u32, colors: &[u8]) -> Option<HICON> {
     unsafe {
-        let mut bi: BITMAPV5HEADER = std::mem::zeroed();
+        let mut bi: BITMAPV5HEADER = mem::zeroed();
 
-        bi.bV5Size = std::mem::size_of::<BITMAPV5HEADER>() as _;
+        bi.bV5Size = size_of::<BITMAPV5HEADER>() as u32;
         bi.bV5Width = width as i32;
         bi.bV5Height = -(height as i32); // NOTE the '-' here to indicate that origin is top-left
         bi.bV5Planes = 1;
@@ -828,46 +772,46 @@ unsafe fn create_win_icon_from_image(width: u32, height: u32, colors: &[u8]) -> 
         bi.bV5BlueMask = 0x000000FF;
         bi.bV5AlphaMask = 0xFF000000;
 
-        let mut target = std::ptr::null_mut();
-        // const uint8_t* source = (const uint8_t*)desc->pixels.ptr;
+        let mut target = ptr::null_mut();
 
-        let dc = GetDC(std::ptr::null_mut());
+        let dc = GetDC(ptr::null_mut());
         let color = CreateDIBSection(
             dc,
-            &bi as *const _ as *const BITMAPINFO,
+            (&raw const bi).cast::<BITMAPINFO>(),
             DIB_RGB_COLORS,
             &mut target,
-            std::ptr::null_mut(),
+            ptr::null_mut(),
             0,
         );
-        ReleaseDC(std::ptr::null_mut(), dc);
+        ReleaseDC(ptr::null_mut(), dc);
         if color.is_null() {
             return None;
         }
         assert!(!target.is_null());
 
-        let mask = CreateBitmap(width as _, height as _, 1, 1, std::ptr::null());
+        let mask = CreateBitmap(width as i32, height as i32, 1, 1, ptr::null());
         if mask.is_null() {
-            DeleteObject(color as *mut _);
+            DeleteObject(color);
             return None;
         }
 
-        for i in 0..width as usize * height as usize {
-            *(target as *mut u8).offset(i as isize * 4 + 0) = colors[i * 4 + 2];
-            *(target as *mut u8).offset(i as isize * 4 + 1) = colors[i * 4 + 1];
-            *(target as *mut u8).offset(i as isize * 4 + 2) = colors[i * 4 + 0];
-            *(target as *mut u8).offset(i as isize * 4 + 3) = colors[i * 4 + 3];
+        // RGBA -> BGRA, the channel order of a 32-bit DIB section.
+        let pixel_count = width as usize * height as usize;
+        let pixels = std::slice::from_raw_parts_mut(target.cast::<[u8; 4]>(), pixel_count);
+        for (dst, src) in pixels.iter_mut().zip(colors.as_chunks::<4>().0) {
+            *dst = [src[2], src[1], src[0], src[3]];
         }
 
-        let mut icon_info: ICONINFO = std::mem::zeroed();
-        icon_info.fIcon = 1;
-        icon_info.xHotspot = 0;
-        icon_info.yHotspot = 0;
-        icon_info.hbmMask = mask;
-        icon_info.hbmColor = color;
-        let icon_handle = CreateIconIndirect(&mut icon_info);
-        DeleteObject(color as *mut _);
-        DeleteObject(mask as *mut _);
+        let icon_info = ICONINFO {
+            fIcon: TRUE,
+            xHotspot: 0,
+            yHotspot: 0,
+            hbmMask: mask,
+            hbmColor: color,
+        };
+        let icon_handle = CreateIconIndirect(&icon_info);
+        DeleteObject(color);
+        DeleteObject(mask);
 
         Some(icon_handle)
     }
@@ -895,12 +839,17 @@ unsafe fn set_icon(wnd: HWND, icon: &Icon) {
         let big_icon = create_win_icon_from_image(big_icon.1, big_icon.2, big_icon.0);
         let small_icon = create_win_icon_from_image(small_icon.1, small_icon.2, small_icon.0);
         if let Some(icon) = big_icon {
-            SendMessageW(wnd, WM_SETICON, ICON_BIG as _, icon as LPARAM);
+            SendMessageW(wnd, WM_SETICON, ICON_BIG as WPARAM, icon as LPARAM);
         }
         if let Some(icon) = small_icon {
-            SendMessageW(wnd, WM_SETICON, ICON_SMALL as _, icon as LPARAM);
+            SendMessageW(wnd, WM_SETICON, ICON_SMALL as WPARAM, icon as LPARAM);
         }
     }
+}
+
+/// Encodes `s` as a NUL-terminated UTF-16 string for the `*W` Win32 APIs.
+fn wide(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
 unsafe fn create_window(
@@ -911,22 +860,22 @@ unsafe fn create_window(
     height: i32,
 ) -> (HWND, HDC) {
     unsafe {
-        let mut wndclassw: WNDCLASSW = std::mem::zeroed();
+        let mut wndclassw: WNDCLASSW = mem::zeroed();
 
         // CS_OWNDC is required for OpenGL
         wndclassw.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
         wndclassw.lpfnWndProc = Some(win32_wndproc);
-        wndclassw.hInstance = GetModuleHandleW(NULL as _);
-        wndclassw.hCursor = LoadCursorW(NULL as _, IDC_ARROW);
-        wndclassw.hIcon = LoadIconW(NULL as _, IDI_WINLOGO);
-        wndclassw.hbrBackground = GetStockObject(BLACK_BRUSH as i32) as HBRUSH;
-        let class_name = "TINYQUADAPP\0".encode_utf16().collect::<Vec<u16>>();
-        wndclassw.lpszClassName = class_name.as_ptr() as _;
-        wndclassw.cbWndExtra = std::mem::size_of::<*mut std::ffi::c_void>() as i32;
+        wndclassw.hInstance = GetModuleHandleW(ptr::null());
+        wndclassw.hCursor = LoadCursorW(ptr::null_mut(), IDC_ARROW);
+        wndclassw.hIcon = LoadIconW(ptr::null_mut(), IDI_WINLOGO);
+        wndclassw.hbrBackground = GetStockObject(BLACK_BRUSH);
+        let class_name = wide("TINYQUADAPP");
+        wndclassw.lpszClassName = class_name.as_ptr();
+        wndclassw.cbWndExtra = size_of::<*mut c_void>() as i32;
         RegisterClassW(&wndclassw);
 
-        let win_style: DWORD;
-        let win_ex_style: DWORD = WS_EX_APPWINDOW | WS_EX_WINDOWEDGE;
+        let win_style: WINDOW_STYLE;
+        let win_ex_style = WS_EX_APPWINDOW | WS_EX_WINDOWEDGE;
         let mut rect = RECT {
             left: 0,
             top: 0,
@@ -935,45 +884,33 @@ unsafe fn create_window(
         };
 
         if fullscreen {
-            win_style = WS_POPUP | WS_SYSMENU | WS_VISIBLE;
+            win_style = get_win_style(true, resizable);
             rect.right = GetSystemMetrics(SM_CXSCREEN);
             rect.bottom = GetSystemMetrics(SM_CYSCREEN);
         } else {
-            win_style = if resizable {
-                WS_CLIPSIBLINGS
-                    | WS_CLIPCHILDREN
-                    | WS_CAPTION
-                    | WS_SYSMENU
-                    | WS_MINIMIZEBOX
-                    | WS_MAXIMIZEBOX
-                    | WS_SIZEBOX
-            } else {
-                WS_CLIPSIBLINGS | WS_CLIPCHILDREN | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX
-            };
+            win_style = get_win_style(false, resizable);
 
             rect.right = width;
             rect.bottom = height;
         }
 
-        AdjustWindowRectEx(&rect as *const _ as _, win_style, false as _, win_ex_style);
+        AdjustWindowRectEx(&mut rect, win_style, 0, win_ex_style);
         let win_width = rect.right - rect.left;
         let win_height = rect.bottom - rect.top;
-        let class_name = "TINYQUADAPP\0".encode_utf16().collect::<Vec<u16>>();
-        let mut window_name = window_title.encode_utf16().collect::<Vec<u16>>();
-        window_name.push(0);
+        let window_name = wide(window_title);
         let hwnd = CreateWindowExW(
-            win_ex_style,                // dwExStyle
-            class_name.as_ptr(),         // lpClassName
-            window_name.as_ptr(),        // lpWindowName
-            win_style,                   // dwStyle
-            CW_USEDEFAULT,               // X
-            CW_USEDEFAULT,               // Y
-            win_width,                   // nWidth
-            win_height,                  // nHeight
-            NULL as _,                   // hWndParent
-            NULL as _,                   // hMenu
-            GetModuleHandleW(NULL as _), // hInstance
-            NULL as _,                   // lparam
+            win_ex_style,                  // dwExStyle
+            class_name.as_ptr(),           // lpClassName
+            window_name.as_ptr(),          // lpWindowName
+            win_style,                     // dwStyle
+            CW_USEDEFAULT,                 // X
+            CW_USEDEFAULT,                 // Y
+            win_width,                     // nWidth
+            win_height,                    // nHeight
+            ptr::null_mut(),               // hWndParent
+            ptr::null_mut(),               // hMenu
+            GetModuleHandleW(ptr::null()), // hInstance
+            ptr::null(),                   // lparam
         );
         assert!(!hwnd.is_null());
 
@@ -992,31 +929,29 @@ unsafe fn create_window(
 unsafe fn create_msg_window() -> (HWND, HDC) {
     unsafe {
         // Use a separate window class to avoid interfering with main window's IME
-        let class_name = "TINYQUADMSGWND\0".encode_utf16().collect::<Vec<u16>>();
+        let class_name = wide("TINYQUADMSGWND");
 
-        let mut wndclassw: WNDCLASSW = std::mem::zeroed();
+        let mut wndclassw: WNDCLASSW = mem::zeroed();
         wndclassw.style = 0;
         wndclassw.lpfnWndProc = Some(DefWindowProcW);
-        wndclassw.hInstance = GetModuleHandleW(NULL as _);
-        wndclassw.lpszClassName = class_name.as_ptr() as _;
+        wndclassw.hInstance = GetModuleHandleW(ptr::null());
+        wndclassw.lpszClassName = class_name.as_ptr();
         RegisterClassW(&wndclassw);
 
-        let window_name = "tinyquad message window\0"
-            .encode_utf16()
-            .collect::<Vec<u16>>();
+        let window_name = wide("tinyquad message window");
         let msg_hwnd = CreateWindowExW(
             WS_EX_OVERLAPPEDWINDOW,
-            class_name.as_ptr() as _,
-            window_name.as_ptr() as _,
+            class_name.as_ptr(),
+            window_name.as_ptr(),
             WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
             0,
             0,
             1,
             1,
-            NULL as _,
-            NULL as _,
-            GetModuleHandleW(NULL as _),
-            NULL,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            GetModuleHandleW(ptr::null()),
+            ptr::null(),
         );
         assert!(
             !msg_hwnd.is_null(),
@@ -1024,11 +959,11 @@ unsafe fn create_msg_window() -> (HWND, HDC) {
         );
 
         // Disable IME for message window to avoid interfering with main window
-        ImmAssociateContextEx(msg_hwnd, std::ptr::null_mut(), IACE_CHILDREN);
+        ImmAssociateContextEx(msg_hwnd, ptr::null_mut(), IACE_CHILDREN);
 
         ShowWindow(msg_hwnd, SW_HIDE);
-        let mut msg = std::mem::zeroed();
-        while PeekMessageW(&mut msg as _, msg_hwnd, 0, 0, PM_REMOVE) != 0 {
+        let mut msg: MSG = mem::zeroed();
+        while PeekMessageW(&mut msg, msg_hwnd, 0, 0, PM_REMOVE) != 0 {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
@@ -1046,16 +981,17 @@ impl WindowsDisplay {
     unsafe fn get_proc_address(&mut self, proc: &str) -> Option<unsafe extern "C" fn() -> ()> {
         unsafe {
             let proc = std::ffi::CString::new(proc).unwrap();
-            let mut proc_ptr = (self.libopengl32.wglGetProcAddress)(proc.as_ptr());
-            if proc_ptr.is_null() {
-                proc_ptr = GetProcAddress(self.libopengl32.module.0, proc.as_ptr());
-            }
-            if proc_ptr.is_null() {
-                eprintln!("Load GL func {:?} failed.", proc);
+            let name = proc.as_ptr().cast::<u8>();
+            // Extensions and GL >= 1.2 come from the driver through WGL; the
+            // GL 1.1 entry points are exported by opengl32.dll itself.
+            let proc_ptr = (self.libopengl32.wglGetProcAddress)(name)
+                .or_else(|| GetProcAddress(self.libopengl32.module.0, name));
+            let Some(proc_ptr) = proc_ptr else {
+                eprintln!("Load GL func {proc:?} failed.");
                 return None;
-            }
-            Some(std::mem::transmute::<
-                *mut winapi::shared::minwindef::__some_function,
+            };
+            Some(mem::transmute::<
+                unsafe extern "system" fn() -> isize,
                 unsafe extern "C" fn(),
             >(proc_ptr))
         }
@@ -1067,13 +1003,13 @@ impl WindowsDisplay {
     unsafe fn update_dimensions(&mut self, hwnd: HWND) -> bool {
         unsafe {
             let mut d = crate::native_display().lock().unwrap();
-            let mut rect: RECT = std::mem::zeroed();
+            let mut rect: RECT = mem::zeroed();
 
             // Get the outer rectangle of the window in screen coordinates
-            if GetWindowRect(hwnd, &mut rect as *mut _ as _) != 0 {
+            if GetWindowRect(hwnd, &mut rect) != 0 {
                 // Get the client area rectangle in client coordinates
-                let mut client_rect: RECT = std::mem::zeroed();
-                if GetClientRect(hwnd, &mut client_rect as *mut _ as _) != 0 {
+                let mut client_rect: RECT = mem::zeroed();
+                if GetClientRect(hwnd, &mut client_rect) != 0 {
                     // Calculate window width and height based on the client area
                     let window_width =
                         ((client_rect.right - client_rect.left) as f32 / self.window_scale) as i32;
@@ -1117,14 +1053,9 @@ impl WindowsDisplay {
             if self.dpi_aware {
                 let pt = POINT { x: 1, y: 1 };
                 let hm = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
-                let mut dpix: UINT = 0;
-                let mut dpiy: UINT = 0;
-                let hr = GetDpiForMonitor(
-                    hm,
-                    MDT_EFFECTIVE_DPI,
-                    &mut dpix as *mut _ as _,
-                    &mut dpiy as *mut _ as _,
-                );
+                let mut dpix = 0u32;
+                let mut dpiy = 0u32;
+                let hr = GetDpiForMonitor(hm, MDT_EFFECTIVE_DPI, &mut dpix, &mut dpiy);
                 assert_eq!(hr, 0);
                 //  clamp window scale to an integer factor
                 self.window_scale = dpix as f32 / 96.0;
@@ -1156,11 +1087,7 @@ impl WindowsDisplay {
             SetFullscreen(fullscreen) => self.set_fullscreen(fullscreen),
             ShowKeyboard(show) => {
                 // On Windows, ShowKeyboard controls IME state
-                if show {
-                    IME_USER_DISABLED.store(false, std::sync::atomic::Ordering::Relaxed);
-                } else {
-                    IME_USER_DISABLED.store(true, std::sync::atomic::Ordering::Relaxed);
-                }
+                IME_USER_DISABLED.store(!show, Ordering::Relaxed);
             }
             SetImePosition { x, y } => {
                 self.set_ime_position(x, y);
@@ -1207,7 +1134,7 @@ where
             mouse_y: 0.,
             show_cursor: true,
             user_cursor: false,
-            cursor: std::ptr::null_mut(),
+            cursor: ptr::null_mut(),
             libopengl32,
             _msg_wnd: msg_wnd,
             msg_dc,
@@ -1244,15 +1171,12 @@ where
         ShowWindow(wnd, SW_SHOW);
 
         // Register for raw mouse input (needed for raw_mouse_motion event)
-        let mut rawinputdevice: RAWINPUTDEVICE = std::mem::zeroed();
+        let mut rawinputdevice: RAWINPUTDEVICE = mem::zeroed();
         rawinputdevice.usUsagePage = HID_USAGE_PAGE_GENERIC;
         rawinputdevice.usUsage = HID_USAGE_GENERIC_MOUSE;
-        rawinputdevice.hwndTarget = NULL as _;
-        let register_succeed = RegisterRawInputDevices(
-            &rawinputdevice as *const _,
-            1,
-            std::mem::size_of::<RAWINPUTDEVICE>() as _,
-        );
+        rawinputdevice.hwndTarget = ptr::null_mut();
+        let register_succeed =
+            RegisterRawInputDevices(&rawinputdevice, 1, size_of::<RAWINPUTDEVICE>() as u32);
         assert!(
             register_succeed == 1,
             "Win32: failed to register for raw mouse input!"
@@ -1260,10 +1184,7 @@ where
 
         display.event_handler = Some(f());
 
-        #[cfg(target_arch = "x86_64")]
-        SetWindowLongPtrA(wnd, GWLP_USERDATA, &mut display as *mut _ as isize);
-        #[cfg(target_arch = "x86")]
-        SetWindowLong(wnd, GWLP_USERDATA, &mut display as *mut _ as isize);
+        set_window_long_ptr(wnd, GWLP_USERDATA, (&raw mut display) as isize);
 
         let mut done = false;
         while !(done || crate::native_display().lock().unwrap().quit_ordered) {
@@ -1271,22 +1192,22 @@ where
                 display.process_request(request);
             }
 
-            let mut dispatch_message = |mut msg: MSG| {
+            let mut dispatch_message = |msg: &MSG| {
                 if msg.message == WM_QUIT {
                     done = true;
                 } else {
-                    TranslateMessage(&mut msg as *mut _ as _);
-                    DispatchMessageW(&mut msg as *mut _ as _);
+                    TranslateMessage(msg);
+                    DispatchMessageW(msg);
                 }
             };
-            let mut msg: MSG = std::mem::zeroed();
+            let mut msg: MSG = mem::zeroed();
             let block_on_wait = conf.platform.blocking_event_loop && !display.update_requested;
             if block_on_wait {
-                GetMessageW(&mut msg as *mut _ as _, NULL as _, 0, 0);
-                dispatch_message(msg);
+                GetMessageW(&mut msg, ptr::null_mut(), 0, 0);
+                dispatch_message(&msg);
             } else {
-                while PeekMessageW(&mut msg as *mut _ as _, NULL as _, 0, 0, PM_REMOVE) != 0 {
-                    dispatch_message(msg);
+                while PeekMessageW(&mut msg, ptr::null_mut(), 0, 0, PM_REMOVE) != 0 {
+                    dispatch_message(&msg);
                 }
             }
 

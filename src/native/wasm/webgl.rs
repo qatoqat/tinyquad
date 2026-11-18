@@ -2,7 +2,7 @@
 //! The only way to get gl functions - actually tell the linker to link with
 //! their gl.js counterparts.
 
-#![allow(non_snake_case, non_camel_case_types, non_upper_case_globals)]
+#![expect(non_camel_case_types)]
 
 pub type GLenum = ::core::ffi::c_uint;
 pub type GLboolean = ::core::ffi::c_uchar;

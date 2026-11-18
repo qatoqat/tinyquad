@@ -284,26 +284,26 @@ impl Stage {
             }
         }
 
-        if let Some((t, n)) = hit_sphere(origin, dir, self.sphere_c, 0.55) {
-            if t < best_t {
-                best_t = t;
-                best_n = n;
-                best_color = [0.30, 0.72, 0.38, 1.0];
-            }
+        if let Some((t, n)) = hit_sphere(origin, dir, self.sphere_c, 0.55)
+            && t < best_t
+        {
+            best_t = t;
+            best_n = n;
+            best_color = [0.30, 0.72, 0.38, 1.0];
         }
-        if let Some((t, n)) = hit_cube(origin, dir, self.cube_c, Vec3::new(0.5, 0.5, 0.5)) {
-            if t < best_t {
-                best_t = t;
-                best_n = n;
-                best_color = [0.45, 0.58, 0.78, 1.0];
-            }
+        if let Some((t, n)) = hit_cube(origin, dir, self.cube_c, Vec3::new(0.5, 0.5, 0.5))
+            && t < best_t
+        {
+            best_t = t;
+            best_n = n;
+            best_color = [0.45, 0.58, 0.78, 1.0];
         }
-        if let Some((t, n)) = hit_cone(origin, dir, self.cone_c, 0.6, 1.4) {
-            if t < best_t {
-                best_t = t;
-                best_n = n;
-                best_color = [0.88, 0.48, 0.22, 1.0];
-            }
+        if let Some((t, n)) = hit_cone(origin, dir, self.cone_c, 0.6, 1.4)
+            && t < best_t
+        {
+            best_t = t;
+            best_n = n;
+            best_color = [0.88, 0.48, 0.22, 1.0];
         }
 
         if best_t.is_infinite() {
@@ -330,26 +330,25 @@ impl Stage {
 
     /// Shadow ray: does anything block the straight line to the light?
     fn occluded(&self, origin: Vec3, dir: Vec3, max_dist: f32) -> bool {
-        if let Some((t, _)) = hit_sphere(origin, dir, self.sphere_c, 0.55) {
-            if t < max_dist {
-                return true;
-            }
+        if let Some((t, _)) = hit_sphere(origin, dir, self.sphere_c, 0.55)
+            && t < max_dist
+        {
+            return true;
         }
-        if let Some((t, _)) = hit_cube(origin, dir, self.cube_c, Vec3::new(0.5, 0.5, 0.5)) {
-            if t < max_dist {
-                return true;
-            }
+        if let Some((t, _)) = hit_cube(origin, dir, self.cube_c, Vec3::new(0.5, 0.5, 0.5))
+            && t < max_dist
+        {
+            return true;
         }
-        if let Some((t, _)) = hit_cone(origin, dir, self.cone_c, 0.6, 1.4) {
-            if t < max_dist {
-                return true;
-            }
+        if let Some((t, _)) = hit_cone(origin, dir, self.cone_c, 0.6, 1.4)
+            && t < max_dist
+        {
+            return true;
         }
         false
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn view_from(eye: Vec3, right: Vec3, up: Vec3, forward: Vec3) -> Mat4 {
     Mat4::from_cols_array_2d(&[
         [right.x, up.x, -forward.x, 0.0],

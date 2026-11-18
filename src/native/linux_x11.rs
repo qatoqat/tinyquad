@@ -1,5 +1,6 @@
 // Spiritual successor of an X11 part of https://github.com/floooh/sokol/blob/master/sokol_app.h
 
+use core::ffi::{c_float, c_int, c_long, c_uint};
 mod clipboard;
 mod drag_n_drop;
 mod glx;
@@ -60,24 +61,24 @@ impl X11Display {
         unsafe {
             match event.type_0 {
                 2 => {
-                    let keycode = event.xkey.keycode as libc::c_int;
+                    let keycode = event.xkey.keycode as c_int;
                     let key = keycodes::translate_key(&mut self.libx11, self.display, keycode);
                     let repeat = self.repeated_keycodes[(keycode & 0xff) as usize];
                     self.repeated_keycodes[(keycode & 0xff) as usize] = true;
-                    let mods = keycodes::translate_mod(event.xkey.state as libc::c_int);
+                    let mods = keycodes::translate_mod(event.xkey.state as c_int);
                     let mut keysym: KeySym = 0;
                     (self.libx11.XLookupString)(
                         &mut event.xkey,
                         std::ptr::null_mut(),
-                        0 as libc::c_int,
+                        0 as c_int,
                         &mut keysym,
                         std::ptr::null_mut(),
                     );
                     let chr = keycodes::keysym_to_unicode(&mut self.libxkbcommon, keysym);
-                    if chr > 0 {
-                        if let Some(chr) = char::from_u32(chr as u32) {
-                            event_handler.char_event(chr, mods, repeat);
-                        }
+                    if chr > 0
+                        && let Some(chr) = char::from_u32(chr as u32)
+                    {
+                        event_handler.char_event(chr, mods, repeat);
                     }
                     event_handler.key_down_event(key, mods, repeat);
                 }
@@ -85,13 +86,13 @@ impl X11Display {
                     let keycode = event.xkey.keycode;
                     let key = keycodes::translate_key(&mut self.libx11, self.display, keycode as _);
                     self.repeated_keycodes[(keycode & 0xff) as usize] = false;
-                    let mods = keycodes::translate_mod(event.xkey.state as libc::c_int);
+                    let mods = keycodes::translate_mod(event.xkey.state as c_int);
                     event_handler.key_up_event(key, mods);
                 }
                 4 => {
                     let btn = keycodes::translate_mouse_button(event.xbutton.button as _);
-                    let x = event.xmotion.x as libc::c_float;
-                    let y = event.xmotion.y as libc::c_float;
+                    let x = event.xmotion.x as c_float;
+                    let y = event.xmotion.y as c_float;
 
                     if btn != crate::event::MouseButton::Unknown {
                         event_handler.mouse_button_down_event(btn, x, y);
@@ -115,22 +116,22 @@ impl X11Display {
                 }
                 5 => {
                     let btn = keycodes::translate_mouse_button(event.xbutton.button as _);
-                    let x = event.xmotion.x as libc::c_float;
-                    let y = event.xmotion.y as libc::c_float;
+                    let x = event.xmotion.x as c_float;
+                    let y = event.xmotion.y as c_float;
 
                     if btn != crate::event::MouseButton::Unknown {
                         event_handler.mouse_button_up_event(btn, x, y);
                     }
                 }
                 6 => {
-                    let x = event.xmotion.x as libc::c_float;
-                    let y = event.xmotion.y as libc::c_float;
+                    let x = event.xmotion.x as c_float;
+                    let y = event.xmotion.y as c_float;
                     event_handler.mouse_motion_event(x, y);
                 }
                 7 => {
-                    let x = event.xcrossing.x as libc::c_float;
-                    let y = event.xcrossing.y as libc::c_float;
-                    let state = event.xcrossing.state as libc::c_long;
+                    let x = event.xcrossing.x as c_float;
+                    let y = event.xcrossing.y as c_float;
+                    let state = event.xcrossing.state as c_long;
 
                     let btn = match () {
                         _ if (state & Button1MotionMask) != 0 => MouseButton::Left,
@@ -169,7 +170,7 @@ impl X11Display {
                 33 => match event.xclient.message_type {
                     t if t == self.libx11.extensions.wm_protocols => {
                         let mut d = crate::native_display().try_lock().unwrap();
-                        let protocol = event.xclient.data.l[0 as libc::c_int as usize] as Atom;
+                        let protocol = event.xclient.data.l[0 as c_int as usize] as Atom;
                         if protocol == self.libx11.extensions.wm_delete_window {
                             d.quit_requested = true;
                         }
@@ -325,7 +326,7 @@ impl X11Display {
                     display: self.display,
                     format: 32,
                     data: ClientMessageData {
-                        l: std::mem::transmute::<[isize; 5], [libc::c_long; 5]>(data),
+                        l: std::mem::transmute::<[isize; 5], [c_long; 5]>(data),
                     },
                 };
                 (self.libx11.XSendEvent)(
@@ -374,7 +375,7 @@ impl X11Display {
                         | Button4MotionMask
                         | Button5MotionMask
                         | ButtonMotionMask
-                        | KeymapStateMask) as libc::c_uint,
+                        | KeymapStateMask) as c_uint,
                     GrabModeAsync,
                     GrabModeAsync,
                     window,
@@ -457,7 +458,7 @@ impl X11Display {
 
 // Returning the display in `Err` lets `start` fall back to the wayland backend;
 // moving `X11Display` into a `Box` just to shrink the `Err` variant is not worth it.
-#[allow(clippy::result_large_err)]
+#[expect(clippy::result_large_err)]
 unsafe fn glx_main_loop<F>(
     mut display: X11Display,
     conf: &crate::conf::Conf,
@@ -556,7 +557,7 @@ where
     }
 }
 
-#[allow(clippy::result_large_err)]
+#[expect(clippy::result_large_err)]
 unsafe fn egl_main_loop<F>(
     mut display: X11Display,
     conf: &crate::conf::Conf,

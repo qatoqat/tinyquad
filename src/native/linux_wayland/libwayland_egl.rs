@@ -1,4 +1,4 @@
-#![allow(non_camel_case_types, dead_code)]
+#![expect(dead_code)]
 
 use super::libwayland_client::wl_surface;
 

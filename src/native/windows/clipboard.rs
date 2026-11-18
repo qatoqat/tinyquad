@@ -1,9 +1,12 @@
-use winapi::um::winbase::{
-    GMEM_MOVEABLE, GlobalAlloc, GlobalFree, GlobalLock, GlobalSize, GlobalUnlock,
-};
-use winapi::um::winuser::CF_UNICODETEXT;
-use winapi::um::winuser::{
-    CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData,
+use windows_sys::Win32::{
+    Foundation::GlobalFree,
+    System::{
+        DataExchange::{
+            CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData,
+        },
+        Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock},
+        Ole::CF_UNICODETEXT,
+    },
 };
 
 use std::ptr;
@@ -13,10 +16,7 @@ impl ClipboardGuard {
     unsafe fn open() -> Option<Self> {
         unsafe {
             let result = OpenClipboard(ptr::null_mut());
-            if result == false as _ {
-                return None;
-            }
-            Some(ClipboardGuard)
+            (result != 0).then_some(ClipboardGuard)
         }
     }
 }
@@ -33,15 +33,13 @@ unsafe fn get_raw_clipboard() -> Option<Vec<u16>> {
     unsafe {
         // https://docs.microsoft.com/en-us/windows/win32/dataxchg/about-the-clipboard
 
-        let guard = ClipboardGuard::open();
-
-        if guard.is_none() {
+        let Some(_guard) = ClipboardGuard::open() else {
             eprintln!("Failed to open clipboard");
             return None;
-        }
+        };
 
         // Returns a handle to a clipboard object
-        let clipboard_data = GetClipboardData(CF_UNICODETEXT);
+        let clipboard_data = GetClipboardData(CF_UNICODETEXT as u32);
         if clipboard_data.is_null() {
             return None;
         }
@@ -50,15 +48,15 @@ unsafe fn get_raw_clipboard() -> Option<Vec<u16>> {
         if data_ptr.is_null() {
             return None;
         }
-        let data_size = GlobalSize(clipboard_data) as usize;
+        // `GlobalSize` is in bytes, the text is UTF-16.
+        let max_len = GlobalSize(clipboard_data) / size_of::<u16>();
 
-        let slice = std::slice::from_raw_parts(data_ptr, data_size);
-        let len = slice.iter().position(|b| *b == 0).unwrap_or(data_size);
+        // The string ends at the first NUL (or at the end of the allocation).
+        let slice = std::slice::from_raw_parts(data_ptr, max_len);
+        let len = slice.iter().position(|&c| c == 0).unwrap_or(max_len);
+        let res = slice[..len].to_vec();
 
-        // search for the first null byte to see where the string ends.
-
-        let mut res = vec![0; len];
-        ptr::copy_nonoverlapping(data_ptr, res.as_mut_ptr(), len);
+        GlobalUnlock(clipboard_data);
 
         Some(res)
     }
@@ -66,12 +64,10 @@ unsafe fn get_raw_clipboard() -> Option<Vec<u16>> {
 
 unsafe fn set_raw_clipboard(data: *const u8, len: usize) {
     unsafe {
-        let guard = ClipboardGuard::open();
-
-        if guard.is_none() {
+        let Some(_guard) = ClipboardGuard::open() else {
             eprintln!("Failed to open clipboard");
             return;
-        }
+        };
 
         let alloc_handle = GlobalAlloc(GMEM_MOVEABLE, len);
 
@@ -88,10 +84,14 @@ unsafe fn set_raw_clipboard(data: *const u8, len: usize) {
         }
         ptr::copy_nonoverlapping(data, lock, len);
 
-        GlobalUnlock(lock as _);
+        GlobalUnlock(alloc_handle);
         EmptyClipboard();
 
-        SetClipboardData(CF_UNICODETEXT, alloc_handle);
+        // On success the system owns the memory; otherwise it is still ours.
+        if SetClipboardData(CF_UNICODETEXT as u32, alloc_handle).is_null() {
+            eprintln!("Failed to set clipboard data");
+            GlobalFree(alloc_handle);
+        }
     }
 }
 
@@ -108,8 +108,8 @@ impl crate::native::Clipboard for WindowsClipboard {
 
     fn set(&mut self, data: &str) {
         unsafe {
-            let text_w = format!("{}\0", data).encode_utf16().collect::<Vec<u16>>();
-            set_raw_clipboard(text_w.as_ptr() as _, text_w.len() * 2);
+            let text_w: Vec<u16> = data.encode_utf16().chain(std::iter::once(0)).collect();
+            set_raw_clipboard(text_w.as_ptr().cast(), size_of_val(&text_w[..]));
         }
     }
 }

@@ -1,10 +1,7 @@
 #![doc = include_str!("../README.md")]
-#![allow(
-    clippy::collapsible_if,
-    clippy::collapsible_else_if,
-    clippy::unused_unit,
-    clippy::identity_op,
-    clippy::missing_safety_doc
+#![expect(
+    clippy::missing_safety_doc,
+    reason = "most public `unsafe fn`s are thin wrappers over raw platform/GL bindings"
 )]
 
 pub mod conf;
@@ -12,7 +9,6 @@ mod event;
 pub mod fs;
 pub mod graphics;
 pub mod native;
-use std::collections::HashMap;
 use std::ops::{Index, IndexMut};
 
 #[cfg(feature = "log-impl")]
@@ -26,44 +22,192 @@ mod default_icon;
 
 pub use native::gl;
 
+/// Storage for backend resources (buffers, shaders, pipelines, render
+/// passes), addressed by the opaque `usize` inside the public id types.
+///
+/// This is a generational slab: values live in a `Vec`, so the lookups done
+/// on every bind/draw are a bounds check plus a generation compare instead
+/// of a `HashMap` probe, and slots of removed resources are recycled so the
+/// table stays as small as the peak number of live resources.
+///
+/// An id packs the slot index (low bits) together with the generation of
+/// the slot at allocation time (high bits). Removing a resource bumps the
+/// slot's generation, so an id is never handed out twice and a stale id
+/// keeps panicking exactly like a missing `HashMap` key did - it can never
+/// silently alias a newer resource. A slot whose generation counter is
+/// exhausted is retired instead of wrapping around. Resources that are never
+/// removed get the ids 0, 1, 2, .. as before.
 #[derive(Clone)]
 pub(crate) struct ResourceManager<T> {
-    id: usize,
-    resources: HashMap<usize, T>,
+    slots: Vec<Slot<T>>,
+    /// Indices of vacant slots that can be handed out again.
+    free: Vec<usize>,
+}
+
+#[derive(Clone)]
+struct Slot<T> {
+    generation: usize,
+    resource: Option<T>,
+}
+
+impl<T> ResourceManager<T> {
+    /// Bits of an id holding the slot index: 4 billion live resources on
+    /// 64-bit targets, 4 million (and 1024 generations per slot) on 32-bit
+    /// ones such as wasm32.
+    const INDEX_BITS: u32 = if usize::BITS >= 64 { 32 } else { 22 };
+    const INDEX_MASK: usize = (1 << Self::INDEX_BITS) - 1;
+    const MAX_GENERATION: usize = usize::MAX >> Self::INDEX_BITS;
+
+    pub fn add(&mut self, resource: T) -> usize {
+        let index = self.free.pop().unwrap_or_else(|| {
+            assert!(
+                self.slots.len() <= Self::INDEX_MASK,
+                "too many live resources"
+            );
+            self.slots.push(Slot {
+                generation: 0,
+                resource: None,
+            });
+            self.slots.len() - 1
+        });
+        let slot = &mut self.slots[index];
+        slot.resource = Some(resource);
+        index | (slot.generation << Self::INDEX_BITS)
+    }
+
+    pub fn remove(&mut self, id: usize) -> T {
+        let index = id & Self::INDEX_MASK;
+        let slot = self
+            .slots
+            .get_mut(index)
+            .filter(|slot| slot.generation == id >> Self::INDEX_BITS);
+        // Let it crash if the resource is not found
+        let slot = slot.unwrap_or_else(|| Self::missing(id));
+        let resource = slot.resource.take().unwrap_or_else(|| Self::missing(id));
+        if slot.generation < Self::MAX_GENERATION {
+            slot.generation += 1;
+            self.free.push(index);
+        }
+        resource
+    }
+
+    #[inline]
+    fn get(&self, id: usize) -> Option<&T> {
+        let slot = self.slots.get(id & Self::INDEX_MASK)?;
+        if slot.generation == id >> Self::INDEX_BITS {
+            slot.resource.as_ref()
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    fn get_mut(&mut self, id: usize) -> Option<&mut T> {
+        let slot = self.slots.get_mut(id & Self::INDEX_MASK)?;
+        if slot.generation == id >> Self::INDEX_BITS {
+            slot.resource.as_mut()
+        } else {
+            None
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn missing(id: usize) -> ! {
+        panic!("resource {id:#x} does not exist (never created or already deleted)")
+    }
 }
 
 impl<T> Default for ResourceManager<T> {
     fn default() -> Self {
         Self {
-            id: 0,
-            resources: HashMap::new(),
+            slots: Vec::new(),
+            free: Vec::new(),
         }
-    }
-}
-
-impl<T> ResourceManager<T> {
-    pub fn add(&mut self, resource: T) -> usize {
-        self.resources.insert(self.id, resource);
-        self.id += 1;
-        self.id - 1
-    }
-
-    pub fn remove(&mut self, id: usize) -> T {
-        // Let it crash if the resource is not found
-        self.resources.remove(&id).unwrap()
     }
 }
 
 impl<T> Index<usize> for ResourceManager<T> {
     type Output = T;
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.resources[&index]
+
+    #[inline]
+    fn index(&self, id: usize) -> &Self::Output {
+        self.get(id).unwrap_or_else(|| Self::missing(id))
     }
 }
 
 impl<T> IndexMut<usize> for ResourceManager<T> {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        self.resources.get_mut(&index).unwrap()
+    #[inline]
+    fn index_mut(&mut self, id: usize) -> &mut Self::Output {
+        self.get_mut(id).unwrap_or_else(|| Self::missing(id))
+    }
+}
+
+#[cfg(test)]
+mod resource_manager_tests {
+    use super::ResourceManager;
+
+    type Rm = ResourceManager<&'static str>;
+
+    #[test]
+    fn ids_are_sequential_without_removals() {
+        let mut rm = Rm::default();
+        assert_eq!([rm.add("a"), rm.add("b"), rm.add("c")], [0, 1, 2]);
+        assert_eq!((rm[0], rm[1], rm[2]), ("a", "b", "c"));
+        rm[1] = "B";
+        assert_eq!(rm[1], "B");
+    }
+
+    #[test]
+    fn slots_are_recycled_but_ids_are_not() {
+        let mut rm = Rm::default();
+        let a = rm.add("a");
+        let b = rm.add("b");
+        assert_eq!(rm.remove(a), "a");
+
+        let c = rm.add("c");
+        assert_ne!(c, a, "an id must never be handed out twice");
+        assert_eq!(c & Rm::INDEX_MASK, a, "the vacant slot is reused");
+        assert_eq!(rm.slots.len(), 2);
+        assert_eq!((rm[b], rm[c]), ("b", "c"));
+        assert!(rm.get(a).is_none(), "stale id must not alias the new one");
+    }
+
+    #[test]
+    #[should_panic(expected = "does not exist")]
+    fn stale_id_panics_on_index() {
+        let mut rm = Rm::default();
+        let a = rm.add("a");
+        rm.remove(a);
+        rm.add("b");
+        let _ = rm[a];
+    }
+
+    #[test]
+    #[should_panic(expected = "does not exist")]
+    fn double_remove_panics() {
+        let mut rm = Rm::default();
+        let a = rm.add("a");
+        rm.remove(a);
+        rm.remove(a);
+    }
+
+    #[test]
+    #[should_panic(expected = "does not exist")]
+    fn unknown_id_panics() {
+        let _ = Rm::default()[7];
+    }
+
+    #[test]
+    fn exhausted_slot_is_retired() {
+        let mut rm = Rm::default();
+        let a = rm.add("a");
+        rm.slots[0].generation = Rm::MAX_GENERATION;
+        let last = a | (Rm::MAX_GENERATION << Rm::INDEX_BITS);
+        assert_eq!(rm.remove(last), "a");
+        // The slot cannot get a fresh generation, so it is never reused.
+        assert_eq!(rm.add("b") & Rm::INDEX_MASK, 1);
+        assert!(rm.get(last).is_none());
     }
 }
 
@@ -74,7 +218,7 @@ pub mod date {
 
         let time = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_else(|e| panic!("{}", e));
+            .unwrap_or_else(|e| panic!("{e}"));
         time.as_secs_f64()
     }
 

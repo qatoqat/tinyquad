@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rainy night</title>
+<style>
+    html, body {
+        margin: 0;
+        height: 100%;
+        background: #000;
+        overflow: hidden;
+    }
+    body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    /* the desktop window size (320x180 pixels at 3x), shrunk to fit small screens */
+    canvas {
+        display: block;
+        width: min(960px, 100vw, calc(100vh * 16 / 9));
+        aspect-ratio: 16 / 9;
+        outline: none;
+        image-rendering: pixelated;
+    }
+</style>
+</head>
+<body>
+<canvas id="glcanvas" tabindex="1"></canvas>
+<script src="gl.js"></script>
+<script src="audio.js"></script>
+<script>
+    // keep Ctrl+key (drop) from triggering browser shortcuts where allowed
+    window.addEventListener("keydown", function (e) {
+        if (e.ctrlKey && e.code !== "KeyR") e.preventDefault();
+    }, { capture: true });
+    document.getElementById("glcanvas").addEventListener("pointerdown", function (e) {
+        e.target.focus();
+    });
+    load("rainy_night.wasm");
+</script>
+</body>
+</html>

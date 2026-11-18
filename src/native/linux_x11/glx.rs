@@ -1,6 +1,7 @@
-#![allow(dead_code, non_snake_case, clippy::upper_case_acronyms)]
+#![expect(dead_code, non_snake_case, clippy::upper_case_acronyms)]
 
 use super::{X11Error, libx11::*};
+use core::ffi::{c_char, c_int, c_uint, c_ulong, c_void};
 
 use crate::native::module;
 
@@ -9,26 +10,26 @@ pub type GLXFBConfig = *mut ();
 pub type GLXWindow = XID;
 pub type GLXDrawable = XID;
 
-pub const GLX_VENDOR: libc::c_int = 1 as libc::c_int;
-pub const GLX_RENDER_TYPE: libc::c_int = 0x8011 as libc::c_int;
-pub const GLX_RGBA_BIT: libc::c_int = 0x1 as libc::c_int;
-pub const GLX_DRAWABLE_TYPE: libc::c_int = 0x8010 as libc::c_int;
-pub const GLX_WINDOW_BIT: libc::c_int = 0x1 as libc::c_int;
-pub const GLX_RED_SIZE: libc::c_int = 8 as libc::c_int;
-pub const GLX_GREEN_SIZE: libc::c_int = 9 as libc::c_int;
-pub const GLX_BLUE_SIZE: libc::c_int = 10 as libc::c_int;
-pub const GLX_ALPHA_SIZE: libc::c_int = 11 as libc::c_int;
-pub const GLX_DEPTH_SIZE: libc::c_int = 12 as libc::c_int;
-pub const GLX_STENCIL_SIZE: libc::c_int = 13 as libc::c_int;
-pub const GLX_DOUBLEBUFFER: libc::c_int = 5 as libc::c_int;
-pub const GLX_SAMPLES: libc::c_int = 0x186a1 as libc::c_int;
+pub const GLX_VENDOR: c_int = 1 as c_int;
+pub const GLX_RENDER_TYPE: c_int = 0x8011 as c_int;
+pub const GLX_RGBA_BIT: c_int = 0x1 as c_int;
+pub const GLX_DRAWABLE_TYPE: c_int = 0x8010 as c_int;
+pub const GLX_WINDOW_BIT: c_int = 0x1 as c_int;
+pub const GLX_RED_SIZE: c_int = 8 as c_int;
+pub const GLX_GREEN_SIZE: c_int = 9 as c_int;
+pub const GLX_BLUE_SIZE: c_int = 10 as c_int;
+pub const GLX_ALPHA_SIZE: c_int = 11 as c_int;
+pub const GLX_DEPTH_SIZE: c_int = 12 as c_int;
+pub const GLX_STENCIL_SIZE: c_int = 13 as c_int;
+pub const GLX_DOUBLEBUFFER: c_int = 5 as c_int;
+pub const GLX_SAMPLES: c_int = 0x186a1 as c_int;
 
-pub const GLX_CONTEXT_MAJOR_VERSION_ARB: libc::c_int = 0x2091 as libc::c_int;
-pub const GLX_CONTEXT_MINOR_VERSION_ARB: libc::c_int = 0x2092 as libc::c_int;
-pub const GLX_CONTEXT_PROFILE_MASK_ARB: libc::c_int = 0x9126 as libc::c_int;
-pub const GLX_CONTEXT_CORE_PROFILE_BIT_ARB: libc::c_int = 0x1 as libc::c_int;
-pub const GLX_CONTEXT_FLAGS_ARB: libc::c_int = 0x2094 as libc::c_int;
-pub const GLX_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB: libc::c_int = 0x2 as libc::c_int;
+pub const GLX_CONTEXT_MAJOR_VERSION_ARB: c_int = 0x2091 as c_int;
+pub const GLX_CONTEXT_MINOR_VERSION_ARB: c_int = 0x2092 as c_int;
+pub const GLX_CONTEXT_PROFILE_MASK_ARB: c_int = 0x9126 as c_int;
+pub const GLX_CONTEXT_CORE_PROFILE_BIT_ARB: c_int = 0x1 as c_int;
+pub const GLX_CONTEXT_FLAGS_ARB: c_int = 0x2094 as c_int;
+pub const GLX_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB: c_int = 0x2 as c_int;
 
 pub type GLenum = ::core::ffi::c_uint;
 pub type GLboolean = ::core::ffi::c_uchar;
@@ -51,60 +52,46 @@ pub type PFNGLXDESTROYWINDOWPROC =
 pub type PFNGLXSWAPBUFFERSPROC =
     Option<unsafe extern "C" fn(_: *mut Display, _: GLXDrawable) -> ()>;
 
-pub type PFNGLXGETFBCONFIGATTRIBPROC = Option<
-    unsafe extern "C" fn(
-        _: *mut Display,
-        _: GLXFBConfig,
-        _: libc::c_int,
-        _: *mut libc::c_int,
-    ) -> libc::c_int,
->;
-pub type PFNGLXGETFBCONFIGSPROC = Option<
-    unsafe extern "C" fn(_: *mut Display, _: libc::c_int, _: *mut libc::c_int) -> *mut GLXFBConfig,
->;
+pub type PFNGLXGETFBCONFIGATTRIBPROC =
+    Option<unsafe extern "C" fn(_: *mut Display, _: GLXFBConfig, _: c_int, _: *mut c_int) -> c_int>;
+pub type PFNGLXGETFBCONFIGSPROC =
+    Option<unsafe extern "C" fn(_: *mut Display, _: c_int, _: *mut c_int) -> *mut GLXFBConfig>;
 pub type PFNGLXMAKECURRENTPROC =
-    Option<unsafe extern "C" fn(_: *mut Display, _: GLXDrawable, _: GLXContext) -> libc::c_int>;
-pub type PFNGLXSWAPINTERVALMESAPROC = Option<unsafe extern "C" fn(_: libc::c_int) -> libc::c_int>;
+    Option<unsafe extern "C" fn(_: *mut Display, _: GLXDrawable, _: GLXContext) -> c_int>;
+pub type PFNGLXSWAPINTERVALMESAPROC = Option<unsafe extern "C" fn(_: c_int) -> c_int>;
 pub type PFNGLXSWAPINTERVALEXTPROC =
-    Option<unsafe extern "C" fn(_: *mut Display, _: GLXDrawable, _: libc::c_int) -> ()>;
+    Option<unsafe extern "C" fn(_: *mut Display, _: GLXDrawable, _: c_int) -> ()>;
 pub type PFNGLXGETCLIENTSTRINGPROC =
-    Option<unsafe extern "C" fn(_: *mut Display, _: libc::c_int) -> *const libc::c_char>;
+    Option<unsafe extern "C" fn(_: *mut Display, _: c_int) -> *const c_char>;
 pub type PFNGLXCREATEWINDOWPROC = Option<
-    unsafe extern "C" fn(
-        _: *mut Display,
-        _: GLXFBConfig,
-        _: Window,
-        _: *const libc::c_int,
-    ) -> GLXWindow,
+    unsafe extern "C" fn(_: *mut Display, _: GLXFBConfig, _: Window, _: *const c_int) -> GLXWindow,
 >;
 pub type PFNGLXCREATECONTEXTATTRIBSARBPROC = Option<
     unsafe extern "C" fn(
         _: *mut Display,
         _: GLXFBConfig,
         _: GLXContext,
-        _: libc::c_int,
-        _: *const libc::c_int,
+        _: c_int,
+        _: *const c_int,
     ) -> GLXContext,
 >;
 pub type PFNGLXGETVISUALFROMFBCONFIGPROC =
     Option<unsafe extern "C" fn(_: *mut Display, _: GLXFBConfig) -> *mut XVisualInfo>;
 pub type PFNGLXQUERYEXTENSIONSSTRINGPROC =
-    Option<unsafe extern "C" fn(_: *mut Display, _: libc::c_int) -> *const libc::c_char>;
+    Option<unsafe extern "C" fn(_: *mut Display, _: c_int) -> *const c_char>;
 pub type __GLXextproc = Option<unsafe extern "C" fn() -> ()>;
 pub type PFNGLXGETPROCADDRESSPROC = Option<unsafe extern "C" fn(_: *const GLubyte) -> __GLXextproc>;
-pub type PFNGLXQUERYVERSIONPROC = Option<
-    unsafe extern "C" fn(_: *mut Display, _: *mut libc::c_int, _: *mut libc::c_int) -> libc::c_int,
->;
-pub type PFNGLXQUERYEXTENSIONPROC = Option<
-    unsafe extern "C" fn(_: *mut Display, _: *mut libc::c_int, _: *mut libc::c_int) -> libc::c_int,
->;
+pub type PFNGLXQUERYVERSIONPROC =
+    Option<unsafe extern "C" fn(_: *mut Display, _: *mut c_int, _: *mut c_int) -> c_int>;
+pub type PFNGLXQUERYEXTENSIONPROC =
+    Option<unsafe extern "C" fn(_: *mut Display, _: *mut c_int, _: *mut c_int) -> c_int>;
 pub type PFNGLXCREATENEWCONTEXTPROC = Option<
     unsafe extern "C" fn(
         _: *mut Display,
         _: GLXFBConfig,
-        _: libc::c_int,
+        _: c_int,
         _: GLXContext,
-        _: libc::c_int,
+        _: c_int,
     ) -> GLXContext,
 >;
 
@@ -168,15 +155,15 @@ impl LibGlx {
 
 #[derive(Copy, Clone)]
 pub struct GLFBConfig {
-    pub red_bits: libc::c_int,
-    pub green_bits: libc::c_int,
-    pub blue_bits: libc::c_int,
-    pub alpha_bits: libc::c_int,
-    pub depth_bits: libc::c_int,
-    pub stencil_bits: libc::c_int,
-    pub samples: libc::c_int,
+    pub red_bits: c_int,
+    pub green_bits: c_int,
+    pub blue_bits: c_int,
+    pub alpha_bits: c_int,
+    pub depth_bits: c_int,
+    pub stencil_bits: c_int,
+    pub samples: c_int,
     pub doublebuffer: bool,
-    pub handle: libc::c_ulong,
+    pub handle: c_ulong,
 }
 
 impl Default for GLFBConfig {
@@ -280,7 +267,7 @@ impl Glx {
             let visual = (*result).visual;
             let depth = (*result).depth;
 
-            (libx11.XFree)(result as *mut libc::c_void);
+            (libx11.XFree)(result as *mut c_void);
 
             let extensions_string = extensions;
             let mut extensions = GlxExtensions {
@@ -327,7 +314,7 @@ impl Glx {
             }
 
             // _sapp_x11_grab_error_handler(libx11);
-            let attribs: [libc::c_int; 8] = [
+            let attribs: [c_int; 8] = [
                 GLX_CONTEXT_MAJOR_VERSION_ARB,
                 2,
                 GLX_CONTEXT_MINOR_VERSION_ARB,
@@ -421,13 +408,12 @@ unsafe fn choose_fbconfig(
     desired_sample_count: i32,
 ) -> GLXFBConfig {
     unsafe {
-        let mut native_count: libc::c_int = 0;
+        let mut native_count: c_int = 0;
         let mut usable_count;
         let mut trust_window_bit = true;
         let vendor = (libgl.glxGetClientString.unwrap())(display, GLX_VENDOR);
         if !vendor.is_null()
-            && libc::strcmp(vendor, b"Chromium\x00" as *const u8 as *const libc::c_char)
-                == 0 as libc::c_int
+            && libc::strcmp(vendor, b"Chromium\x00" as *const u8 as *const c_char) == 0 as c_int
         {
             trust_window_bit = false
         }
@@ -439,14 +425,14 @@ unsafe fn choose_fbconfig(
         }
 
         let mut usable_configs: Vec<GLFBConfig> = Vec::new();
-        usable_count = 0 as libc::c_int;
+        usable_count = 0 as c_int;
 
         for i in 0..native_count {
             let n = *native_configs.offset(i as isize);
             let mut u = GLFBConfig::default();
 
             let glx_attrib = |fbconfig, attrib| {
-                let mut value: libc::c_int = 0;
+                let mut value: c_int = 0;
                 (libgl.glxGetFBConfigAttrib.unwrap())(display, fbconfig, attrib, &mut value);
                 value
             };
@@ -454,10 +440,8 @@ unsafe fn choose_fbconfig(
             if 0 == glx_attrib(n, GLX_RENDER_TYPE) & GLX_RGBA_BIT {
                 continue;
             }
-            if 0 == glx_attrib(n, GLX_DRAWABLE_TYPE) & GLX_WINDOW_BIT {
-                if trust_window_bit {
-                    continue;
-                }
+            if 0 == glx_attrib(n, GLX_DRAWABLE_TYPE) & GLX_WINDOW_BIT && trust_window_bit {
+                continue;
             }
 
             u.red_bits = glx_attrib(n, GLX_RED_SIZE);
@@ -472,13 +456,13 @@ unsafe fn choose_fbconfig(
             if multisample {
                 u.samples = glx_attrib(n, GLX_SAMPLES)
             }
-            u.handle = n as libc::c_ulong;
+            u.handle = n as c_ulong;
             usable_configs.push(u);
             usable_count += 1
         }
 
         let mut result = 0 as GLXFBConfig;
-        #[allow(clippy::field_reassign_with_default)]
+        #[expect(clippy::field_reassign_with_default)]
         {
             let mut desired = GLFBConfig::default();
             desired.red_bits = 8;
@@ -497,12 +481,12 @@ unsafe fn choose_fbconfig(
             let closest: *const GLFBConfig = gl_choose_fbconfig(
                 &desired,
                 usable_configs.as_mut_ptr(),
-                usable_count as libc::c_uint,
+                usable_count as c_uint,
             );
             if !closest.is_null() {
                 result = (*closest).handle as GLXFBConfig
             }
-            (libx11.XFree)(native_configs as *mut libc::c_void);
+            (libx11.XFree)(native_configs as *mut c_void);
         }
         result
     }
@@ -526,7 +510,7 @@ impl From<&GLFBConfig> for crate::native::fbconfig::FbConfigSpec {
 pub unsafe extern "C" fn gl_choose_fbconfig(
     desired: *const GLFBConfig,
     alternatives: *const GLFBConfig,
-    count: libc::c_uint,
+    count: c_uint,
 ) -> *const GLFBConfig {
     unsafe {
         let specs: Vec<crate::native::fbconfig::FbConfigSpec> = (0..count as usize)
