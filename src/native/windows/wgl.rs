@@ -1,10 +1,19 @@
 #![allow(dead_code, non_snake_case)]
-use winapi::{
-    shared::{
-        minwindef::{INT, UINT},
-        windef::{HDC, HGLRC},
+use std::ffi::{CStr, c_char};
+
+use windows_sys::{
+    Win32::{
+        Foundation::GetLastError,
+        Graphics::{
+            Gdi::HDC,
+            OpenGL::{
+                ChoosePixelFormat, DescribePixelFormat, HGLRC, PFD_DOUBLEBUFFER,
+                PFD_DRAW_TO_WINDOW, PFD_SUPPORT_OPENGL, PFD_TYPE_RGBA, PIXELFORMATDESCRIPTOR,
+                SetPixelFormat,
+            },
+        },
     },
-    um::{errhandlingapi::GetLastError, wingdi::*},
+    core::BOOL,
 };
 
 use super::{LibOpengl32, WindowsDisplay};
@@ -58,11 +67,11 @@ pub const ERROR_INVALID_PROFILE_ARB: u32 = 0x2096;
 pub const ERROR_INCOMPATIBLE_DEVICE_CONTEXTS_ARB: u32 = 0x2054;
 
 type GetPixelFormatAttribivARB =
-    extern "system" fn(_: HDC, _: INT, _: INT, _: UINT, _: *const INT, _: *mut INT) -> bool;
-type GetExtensionsStringEXT = extern "system" fn() -> *const i8;
-type GetExtensionsStringARB = extern "system" fn(_: HDC) -> *const i8;
-type CreateContextAttribsARB = extern "system" fn(_: HDC, _: HGLRC, _: *const INT) -> HGLRC;
-type SwapIntervalEXT = extern "system" fn(_: INT) -> bool;
+    extern "system" fn(_: HDC, _: i32, _: i32, _: u32, _: *const i32, _: *mut i32) -> BOOL;
+type GetExtensionsStringEXT = extern "system" fn() -> *const c_char;
+type GetExtensionsStringARB = extern "system" fn(_: HDC) -> *const c_char;
+type CreateContextAttribsARB = extern "system" fn(_: HDC, _: HGLRC, _: *const i32) -> HGLRC;
+type SwapIntervalEXT = extern "system" fn(_: i32) -> BOOL;
 
 #[derive(Copy, Clone)]
 pub struct GlFbconfig {
@@ -132,23 +141,18 @@ pub struct Wgl {
     arb_pixel_format: bool,
 }
 
-unsafe fn get_wgl_proc_address<T>(libopengl32: &mut LibOpengl32, proc: &str) -> Option<T> {
-    unsafe {
-        let proc = std::ffi::CString::new(proc).unwrap();
-        let proc = (libopengl32.wglGetProcAddress)(proc.as_ptr() as *const _);
-
-        if proc.is_null() {
-            return None;
-        }
-        Some(std::mem::transmute_copy(&proc))
-    }
+/// # Safety
+/// `T` must be the `extern "system"` function pointer type matching `proc`.
+unsafe fn get_wgl_proc_address<T>(libopengl32: &LibOpengl32, proc: &CStr) -> Option<T> {
+    let proc = (libopengl32.wglGetProcAddress)(proc.as_ptr().cast())?;
+    Some(unsafe { std::mem::transmute_copy(&proc) })
 }
 
 impl Wgl {
     pub(crate) unsafe fn new(display: &mut WindowsDisplay) -> Wgl {
         unsafe {
             let mut pfd: PIXELFORMATDESCRIPTOR = std::mem::zeroed();
-            pfd.nSize = std::mem::size_of_val(&pfd) as _;
+            pfd.nSize = size_of::<PIXELFORMATDESCRIPTOR>() as u16;
             pfd.nVersion = 1;
             pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
             pfd.iPixelType = PFD_TYPE_RGBA;
@@ -165,28 +169,27 @@ impl Wgl {
             if rc.is_null() {
                 panic!("WGL: Failed to create dummy context");
             }
-            if !(display.libopengl32.wglMakeCurrent)(display.msg_dc, rc) {
+            if (display.libopengl32.wglMakeCurrent)(display.msg_dc, rc) == 0 {
                 panic!("WGL: Failed to make context current");
             }
 
             let GetExtensionsStringEXT: Option<GetExtensionsStringEXT> =
-                get_wgl_proc_address(&mut display.libopengl32, "wglGetExtensionsStringEXT");
+                get_wgl_proc_address(&display.libopengl32, c"wglGetExtensionsStringEXT");
             let GetExtensionsStringARB: Option<GetExtensionsStringARB> =
-                get_wgl_proc_address(&mut display.libopengl32, "wglGetExtensionsStringARB");
+                get_wgl_proc_address(&display.libopengl32, c"wglGetExtensionsStringARB");
             let CreateContextAttribsARB: Option<CreateContextAttribsARB> =
-                get_wgl_proc_address(&mut display.libopengl32, "wglCreateContextAttribsARB");
+                get_wgl_proc_address(&display.libopengl32, c"wglCreateContextAttribsARB");
             let SwapIntervalEXT: Option<SwapIntervalEXT> =
-                get_wgl_proc_address(&mut display.libopengl32, "wglSwapIntervalEXT");
+                get_wgl_proc_address(&display.libopengl32, c"wglSwapIntervalEXT");
             let GetPixelFormatAttribivARB: Option<GetPixelFormatAttribivARB> =
-                get_wgl_proc_address(&mut display.libopengl32, "wglGetPixelFormatAttribivARB");
+                get_wgl_proc_address(&display.libopengl32, c"wglGetPixelFormatAttribivARB");
 
             let wgl_ext_supported = |ext: &str| -> bool {
                 if let Some(getExtensionsStringEXT) = GetExtensionsStringEXT {
                     let extensions = getExtensionsStringEXT();
 
                     if !extensions.is_null() {
-                        let extensions_string =
-                            std::ffi::CStr::from_ptr(extensions).to_string_lossy();
+                        let extensions_string = CStr::from_ptr(extensions).to_string_lossy();
                         if extensions_string.contains(ext) {
                             return true;
                         }
@@ -197,8 +200,7 @@ impl Wgl {
                     let extensions =
                         getExtensionsStringARB((display.libopengl32.wglGetCurrentDC)());
                     if !extensions.is_null() {
-                        let extensions_string =
-                            std::ffi::CStr::from_ptr(extensions).to_string_lossy();
+                        let extensions_string = CStr::from_ptr(extensions).to_string_lossy();
 
                         if extensions_string.contains(ext) {
                             return true;
@@ -240,14 +242,15 @@ impl Wgl {
         attrib: i32,
     ) -> i32 {
         let mut value = 0;
-        if !(self.GetPixelFormatAttribivARB.unwrap())(
+        if (self.GetPixelFormatAttribivARB.unwrap())(
             display.dc,
             pixel_format,
             0,
             1,
             &attrib,
-            &mut value as *mut _,
-        ) {
+            &mut value,
+        ) == 0
+        {
             panic!("WGL: Failed to retrieve pixel format attribute");
         }
         value
@@ -329,8 +332,8 @@ impl Wgl {
             if DescribePixelFormat(
                 display.dc,
                 pixel_format as _,
-                std::mem::size_of_val(&pfd) as _,
-                &mut pfd as *mut _ as _,
+                size_of::<PIXELFORMATDESCRIPTOR>() as u32,
+                &mut pfd,
             ) == 0
             {
                 panic!("WGL: Failed to retrieve PFD for selected pixel format!");

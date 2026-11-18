@@ -1,12 +1,18 @@
 #![allow(non_camel_case_types, dead_code, non_snake_case)]
 
-use winapi::shared::{minwindef::*, ntdef::*, windef::*};
+use windows_sys::{
+    Win32::{
+        Foundation::FARPROC,
+        Graphics::{Gdi::HDC, OpenGL::HGLRC},
+    },
+    core::{BOOL, PCSTR},
+};
 
 pub type wglCreateContext = extern "system" fn(_: HDC) -> HGLRC;
-pub type wglDeleteContext = extern "system" fn(_: HGLRC) -> bool;
-pub type wglGetProcAddress = extern "system" fn(_: LPCSTR) -> PROC;
+pub type wglDeleteContext = extern "system" fn(_: HGLRC) -> BOOL;
+pub type wglGetProcAddress = extern "system" fn(_: PCSTR) -> FARPROC;
 pub type wglGetCurrentDC = extern "system" fn() -> HDC;
-pub type wglMakeCurrent = extern "system" fn(_: HDC, _: HGLRC) -> bool;
+pub type wglMakeCurrent = extern "system" fn(_: HDC, _: HGLRC) -> BOOL;
 
 pub struct LibOpengl32 {
     pub module: crate::native::module::Module,
