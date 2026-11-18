@@ -622,10 +622,21 @@ fn load_shader_internal(
 
         glUseProgram(program);
 
-        #[rustfmt::skip]
-        let images = meta.images.iter().map(|name| ShaderImage {
-            gl_loc: get_uniform_location(program, name),
-        }).collect();
+        // Sampler uniforms are program state: image `n` always samples from
+        // texture unit `n`, so assign the units once here instead of on
+        // every `apply_bindings`.
+        let images: Vec<ShaderImage> = meta
+            .images
+            .iter()
+            .enumerate()
+            .map(|(unit, name)| {
+                let gl_loc = get_uniform_location(program, name);
+                if let Some(gl_loc) = gl_loc {
+                    glUniform1i(gl_loc, unit as i32);
+                }
+                ShaderImage { gl_loc }
+            })
+            .collect();
 
         #[rustfmt::skip]
         let uniforms = meta.uniforms.uniforms.iter().scan(0, |offset, uniform| {
@@ -652,8 +663,8 @@ pub fn load_shader(shader_type: GLenum, source: &str) -> Result<GLuint, ShaderEr
         assert!(shader != 0);
 
         let cstring = CString::new(source)?;
-        let csource = [cstring];
-        glShaderSource(shader, 1, csource.as_ptr() as *const _, std::ptr::null());
+        let csource = [cstring.as_ptr()];
+        glShaderSource(shader, 1, csource.as_ptr(), std::ptr::null());
         glCompileShader(shader);
 
         let mut is_compiled = 0;
@@ -914,11 +925,10 @@ impl RenderingBackend for GlContext {
     }
 
     fn delete_texture(&mut self, texture: TextureId) {
-        //self.cache.clear_texture_bindings();
-
         let t = self.textures.get(texture);
         match &t.raw {
             TextureOrRenderbuffer::Texture(raw) => unsafe {
+                self.cache.forget_texture(*raw);
                 glDeleteTextures(1, raw as *const _);
             },
             TextureOrRenderbuffer::Renderbuffer(raw) => unsafe {
@@ -1302,46 +1312,31 @@ impl RenderingBackend for GlContext {
     fn apply_pipeline(&mut self, pipeline: &Pipeline) {
         self.cache.cur_pipeline = Some(*pipeline);
 
-        {
-            let pipeline = &self.pipelines[pipeline.0];
-            let shader = &self.shaders[pipeline.shader.0];
-            unsafe {
-                glUseProgram(shader.program);
-            }
+        let pipeline = &self.pipelines[pipeline.0];
+        let program = self.shaders[pipeline.shader.0].program;
+        let params = pipeline.params;
 
-            unsafe {
-                glEnable(GL_SCISSOR_TEST);
-            }
+        unsafe {
+            glUseProgram(program);
+            glEnable(GL_SCISSOR_TEST);
 
-            if pipeline.params.depth_write {
-                unsafe {
-                    glEnable(GL_DEPTH_TEST);
-                    glDepthFunc(pipeline.params.depth_test.into())
-                }
+            if params.depth_write {
+                glEnable(GL_DEPTH_TEST);
+                glDepthFunc(params.depth_test.into())
             } else {
-                unsafe {
-                    glDisable(GL_DEPTH_TEST);
-                }
+                glDisable(GL_DEPTH_TEST);
             }
 
-            match pipeline.params.front_face_order {
-                FrontFaceOrder::Clockwise => unsafe {
-                    glFrontFace(GL_CW);
-                },
-                FrontFaceOrder::CounterClockwise => unsafe {
-                    glFrontFace(GL_CCW);
-                },
-            }
+            glFrontFace(match params.front_face_order {
+                FrontFaceOrder::Clockwise => GL_CW,
+                FrontFaceOrder::CounterClockwise => GL_CCW,
+            });
         }
 
-        self.set_cull_face(self.pipelines[pipeline.0].params.cull_face);
-        self.set_blend(
-            self.pipelines[pipeline.0].params.color_blend,
-            self.pipelines[pipeline.0].params.alpha_blend,
-        );
-
-        self.set_stencil(self.pipelines[pipeline.0].params.stencil_test);
-        self.set_color_write(self.pipelines[pipeline.0].params.color_write);
+        self.set_cull_face(params.cull_face);
+        self.set_blend(params.color_blend, params.alpha_blend);
+        self.set_stencil(params.stencil_test);
+        self.set_color_write(params.color_write);
     }
 
     fn new_buffer(
@@ -1428,10 +1423,11 @@ impl RenderingBackend for GlContext {
     /// There is no protection against using deleted textures later. However its not an UB in OpenGl and thats why
     /// this function is not marked as unsafe
     fn delete_buffer(&mut self, buffer: BufferId) {
-        unsafe { glDeleteBuffers(1, &self.buffers[buffer.0].gl_buf as *const _) }
-        self.cache.clear_buffer_bindings();
-        self.cache.clear_vertex_attributes();
-        self.buffers.remove(buffer.0);
+        let gl_buf = self.buffers.remove(buffer.0).gl_buf;
+        // Only state that actually refers to this buffer has to be dropped;
+        // unrelated bindings and vertex attributes stay cached.
+        self.cache.forget_buffer(gl_buf);
+        unsafe { glDeleteBuffers(1, &gl_buf) }
     }
 
     /// Set a new viewport rectangle.
@@ -1463,26 +1459,25 @@ impl RenderingBackend for GlContext {
             let bindings_image = textures
                 .get(n)
                 .unwrap_or_else(|| panic!("Image count in bindings and shader did not match!"));
-            if let Some(gl_loc) = shader_image.gl_loc {
+            // The sampler uniform itself was pointed at unit `n` when the
+            // shader was linked; images the shader does not use are skipped.
+            if shader_image.gl_loc.is_some() {
                 let texture = self.textures.get(*bindings_image);
                 let raw = match texture.raw {
                     TextureOrRenderbuffer::Texture(id) => id,
                     TextureOrRenderbuffer::Renderbuffer(id) => id,
                 };
-                unsafe {
-                    self.cache.bind_texture(n, texture.params.kind.into(), raw);
-                    glUniform1i(gl_loc, n as i32);
-                }
+                self.cache
+                    .ensure_texture_bound(n, texture.params.kind.into(), raw);
             }
         }
 
+        let index_buffer = &self.buffers[index_buffer.0];
         self.cache.bind_buffer(
             GL_ELEMENT_ARRAY_BUFFER,
-            self.buffers[index_buffer.0].gl_buf,
-            self.buffers[index_buffer.0].index_type,
+            index_buffer.gl_buf,
+            index_buffer.index_type,
         );
-
-        let pip = &self.pipelines[self.cache.cur_pipeline.unwrap().0];
 
         for attr_index in 0..MAX_VERTEX_ATTRIBUTES {
             let cached_attr = &mut self.cache.attributes[attr_index];

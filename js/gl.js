@@ -805,7 +805,7 @@ var importObject = {
         glUniformMatrix4fv: function (location, count, transpose, value) {
             GL.validateGLObjectID(GL.uniforms, location, 'glUniformMatrix4fv', 'location');
             assert((value & 3) == 0, 'Pointer to float data passed to glUniformMatrix4fv must be aligned to four bytes!');
-            var view = getArray(value, Float32Array, 16);
+            var view = getArray(value, Float32Array, 16 * count);
             gl.uniformMatrix4fv(GL.uniforms[location], !!transpose, view);
         },
         glUseProgram: function (program) {
