@@ -100,7 +100,7 @@ impl WaylandPayload {
                 // if key repeat takes place
                 if fds[1].revents & libc::POLLIN == 1 {
                     let mut count: [libc::size_t; 1] = [0];
-                    let n_bits = core::mem::size_of::<libc::size_t>();
+                    let n_bits = size_of::<libc::size_t>();
                     assert_eq!(
                         libc::read(
                             self.keyboard_context.timerfd,
@@ -1171,7 +1171,7 @@ where
         );
 
         let (tx, rx) = std::sync::mpsc::channel();
-        let clipboard = Box::new(clipboard::WaylandClipboard::new(&mut display as *mut _));
+        let clipboard = Box::new(clipboard::WaylandClipboard::new(&mut display));
         crate::set_display(NativeDisplayData {
             high_dpi: conf.high_dpi,
             dpi_scale: 1., // At this point dpi_scale is not known to us

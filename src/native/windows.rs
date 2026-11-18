@@ -452,10 +452,10 @@ unsafe extern "system" fn win32_wndproc(
 
                 //     let mut tme: TRACKMOUSEEVENT = mem::zeroed();
 
-                //     tme.cbSize = std::mem::size_of_val(&tme) as _;
+                //     tme.cbSize = size_of_val(&tme) as _;
                 //     tme.dwFlags = TME_LEAVE;
                 //     tme.hwndTrack = wnd;
-                //     TrackMouseEvent(&mut tme as *mut _);
+                //     TrackMouseEvent(&mut tme);
                 //     _sapp_win32_mouse_event(
                 //         sapp_event_type_SAPP_EVENTTYPE_MOUSE_ENTER,
                 //         sapp_mousebutton_SAPP_MOUSEBUTTON_INVALID,

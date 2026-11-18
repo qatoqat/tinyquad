@@ -44,7 +44,7 @@ unsafe fn get_clipboard(
                 });
             }
             if event.type_0 == SelectionRequest {
-                respond_to_clipboard_request(libx11, display, &mut event as *mut _);
+                respond_to_clipboard_request(libx11, display, &event);
             }
         }
     }
@@ -99,9 +99,9 @@ pub(crate) unsafe fn get_property_bytes(
                 return bytes;
             } else {
                 let n_bits = match actual_format {
-                    8 => std::mem::size_of::<c_char>(),
-                    16 => std::mem::size_of::<c_int>(),
-                    32 => std::mem::size_of::<c_long>(),
+                    8 => size_of::<c_char>(),
+                    16 => size_of::<c_int>(),
+                    32 => size_of::<c_long>(),
                     _ => unreachable!(),
                 };
                 bytes.extend(std::slice::from_raw_parts(

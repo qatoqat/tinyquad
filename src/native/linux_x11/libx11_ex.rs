@@ -194,7 +194,7 @@ impl LibX11 {
             libc::memset(
                 &mut wa as *mut XSetWindowAttributes as *mut c_void,
                 0 as c_int,
-                ::std::mem::size_of::<XSetWindowAttributes>() as _,
+                size_of::<XSetWindowAttributes>() as _,
             );
             let wamask = (CWBorderPixel | CWColormap | CWEventMask) as u32;
 

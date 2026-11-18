@@ -993,9 +993,9 @@ impl<'a> BufferSource<'a> {
     ///
     /// For vertex buffers it is OK to use `empty::<u8>(byte_size);`
     pub fn empty<T>(size: usize) -> BufferSource<'a> {
-        let element_size = std::mem::size_of::<T>();
+        let element_size = size_of::<T>();
         BufferSource::Empty {
-            size: size * std::mem::size_of::<T>(),
+            size: size * size_of::<T>(),
             element_size,
         }
     }
@@ -1003,8 +1003,8 @@ impl<'a> BufferSource<'a> {
     pub fn slice<T>(data: &'a [T]) -> BufferSource<'a> {
         BufferSource::Slice(Arg {
             ptr: data.as_ptr() as _,
-            size: std::mem::size_of_val(data),
-            element_size: std::mem::size_of::<T>(),
+            size: size_of_val(data),
+            element_size: size_of::<T>(),
             is_slice: true,
             _phantom: std::marker::PhantomData,
         })
@@ -1026,8 +1026,8 @@ impl<'a> UniformsSource<'a> {
     pub fn table<T>(data: &'a T) -> UniformsSource<'a> {
         Self(Arg {
             ptr: data as *const T as _,
-            size: std::mem::size_of_val(data),
-            element_size: std::mem::size_of::<T>(),
+            size: size_of_val(data),
+            element_size: size_of::<T>(),
             is_slice: false,
             _phantom: std::marker::PhantomData,
         })

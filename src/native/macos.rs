@@ -1097,7 +1097,7 @@ impl FramePacer {
     fn new() -> Option<Self> {
         unsafe {
             let mut display_link: CVDisplayLinkRef = std::ptr::null_mut();
-            if CVDisplayLinkCreateWithActiveCGDisplays(&mut display_link as *mut _) != 0
+            if CVDisplayLinkCreateWithActiveCGDisplays(&mut display_link) != 0
                 || display_link.is_null()
             {
                 return None;
