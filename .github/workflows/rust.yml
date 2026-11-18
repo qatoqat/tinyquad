@@ -74,6 +74,23 @@ jobs:
         run: cargo test
       - name: Run tests with log-impl
         run: cargo test --features log-impl
+      - name: Run example tests
+        run: cargo test --release --example rainy_night --example view_toggle
+
+  web-demo:
+    name: Web demo (rainy_night)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Build
+        run: examples/rainy_night/web/build.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: rainy_night-web
+          path: target/web/rainy_night
 
   # The unit tests are pure logic (no window/GPU needed), so they can
   # run on desktop runners even though the platform backends

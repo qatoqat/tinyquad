@@ -31,6 +31,36 @@ machines as possible.
 [examples/quad.rs](https://github.com/qatoqat/tinyquad/blob/main/examples/quad.rs)<br/>
 [examples/offscreen.rs](https://github.com/qatoqat/tinyquad/blob/main/examples/offscreen.rs)<br/>
 
+### Rainy night
+
+![rainy night](examples/rainy_night/screenshot.png)
+
+[examples/rainy_night](https://github.com/qatoqat/tinyquad/tree/main/examples/rainy_night)
+is a small game drawn entirely in software into a 320x180 texture. A dark gray
+cat with blue eyes explores pixel-art voxel dioramas at night: a floating cafe
+under neon signs, its cut-away interior, and a flooded street in the rain.
+
+- Fez-style camera: four side views (**Q / E**) and a 45 degree 3/4 view
+  (**Tab**) where tops and fronts both keep their pixel ratio. In side views
+  anything that looks like a floor on screen is one, whatever its depth, so
+  platforms that only line up from one side become a path.
+- Light is traced through the voxel structure, giving shadows, tinted glass,
+  neon glow and dry shade under roofs. Rain falls as 3D drops, water ripples
+  and carries floating boxes, and lightning brings thunder. All sound is
+  synthesized, with tiny ALSA / waveOut / AudioQueue / WebAudio backends.
+- Controls: **A / D** walk (**W / S** too in the 3/4 view), **Space** jump,
+  **Shift** sprint or charge a high jump, **Ctrl** drop through a platform,
+  **W** go through a door.
+
+```bash
+cargo run --release --example rainy_night
+# web: a centered canvas, nothing else
+examples/rainy_night/web/build.sh && cd target/web/rainy_night && python3 -m http.server
+```
+
+[examples/view_toggle.rs](https://github.com/qatoqat/tinyquad/blob/main/examples/view_toggle.rs)
+is the same camera idea on the GPU, as a tiny Fez-like puzzle with textures.
+
 # Building examples
 
 ## Linux
