@@ -129,13 +129,10 @@ impl GlCache {
     }
 
     pub fn clear_vertex_attributes(&mut self) {
-        for attr_index in 0..MAX_VERTEX_ATTRIBUTES {
-            let cached_attr = &mut self.attributes[attr_index];
-
-            if cached_attr.is_some() {
+        for (attr_index, cached_attr) in self.attributes.iter_mut().enumerate() {
+            if cached_attr.take().is_some() {
                 unsafe { glDisableVertexAttribArray(attr_index as GLuint) };
             }
-            *cached_attr = None;
         }
     }
 }

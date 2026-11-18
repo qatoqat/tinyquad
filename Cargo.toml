@@ -3,9 +3,8 @@ name = "tinyquad"
 version = "0.4.11"
 authors = ["not-fl3 <not.fl3@gmail.com>"]
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.100"
 license = "MIT OR Apache-2.0"
-homepage = "https://github.com/qatoqat/tinyquad"
 repository = "https://github.com/qatoqat/tinyquad"
 description = """
 Cross-platform window context and rendering library.
