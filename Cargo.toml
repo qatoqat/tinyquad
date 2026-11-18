@@ -51,6 +51,16 @@ glam = { version = "0.33", features = ["scalar-math"] }
 quad-rand = "0.2"
 fontdue = "0.9"
 
+# Only for the audio backend of the rainy_night example (waveOut).
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Media",
+    "Win32_Media_Audio",
+    "Win32_Security",
+    "Win32_System_Threading",
+] }
+
 # Android apps are shared libraries loaded by the Java activity through JNI:
 # there is no `main`, the entry point is the `quad_main` symbol.
 [[example]]
