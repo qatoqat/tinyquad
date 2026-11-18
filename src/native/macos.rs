@@ -16,7 +16,7 @@ use {
     },
     std::{
         collections::HashMap,
-        os::raw::c_void,
+        ffi::c_void,
         sync::{Condvar, Mutex, mpsc::Receiver},
         time::{Duration, Instant},
     },
@@ -948,7 +948,7 @@ pub fn define_metal_view_class() -> *const Class {
 
 // The `&mut MacosDisplay` comes from a display pointer stored in the view's ivar,
 // not from `this` itself, so `&Object` input is not actually aliased.
-#[allow(clippy::mut_from_ref)]
+#[expect(clippy::mut_from_ref)]
 fn get_window_payload(this: &Object) -> &mut MacosDisplay {
     unsafe {
         let ptr: *mut c_void = *this.get_ivar("display_ptr");
@@ -976,7 +976,7 @@ unsafe fn create_metal_view(_: &mut MacosDisplay, sample_count: i32, _: bool) ->
     }
 }
 
-#[allow(clippy::vec_init_then_push)]
+#[expect(clippy::vec_init_then_push)]
 unsafe fn create_opengl_view(
     display: &mut MacosDisplay,
     sample_count: i32,

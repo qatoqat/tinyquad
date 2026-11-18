@@ -3,6 +3,7 @@ use super::libwayland_client::{
     wl_buffer, wl_proxy, wl_shm, wl_shm_format_WL_SHM_FORMAT_ARGB8888, wl_shm_pool,
 };
 use crate::wl_request_constructor;
+use core::ffi::{c_char, c_int};
 
 unsafe fn wl_shm_pool_destroy(libwayland: &mut LibWaylandClient, wl_shm_pool: *mut wl_shm_pool) {
     unsafe {
@@ -11,7 +12,7 @@ unsafe fn wl_shm_pool_destroy(libwayland: &mut LibWaylandClient, wl_shm_pool: *m
     }
 }
 
-unsafe extern "C" fn create_tmpfile_cloexec(tmpname: *mut libc::c_char) -> libc::c_int {
+unsafe extern "C" fn create_tmpfile_cloexec(tmpname: *mut c_char) -> c_int {
     unsafe {
         let fd = libc::mkostemp(tmpname, libc::O_CLOEXEC);
         if fd >= 0 {
@@ -21,7 +22,7 @@ unsafe extern "C" fn create_tmpfile_cloexec(tmpname: *mut libc::c_char) -> libc:
     }
 }
 
-unsafe extern "C" fn create_anonymous_file(size: usize) -> libc::c_int {
+unsafe extern "C" fn create_anonymous_file(size: usize) -> c_int {
     unsafe {
         let xdg_folder_path = std::env::var("XDG_RUNTIME_DIR").expect("XDG_RUNTIME_DIR not set");
         let filepath = format!("{}/tinyquad-shared-XXXXXX", xdg_folder_path);

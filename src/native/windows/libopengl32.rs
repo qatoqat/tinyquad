@@ -1,4 +1,4 @@
-#![allow(non_camel_case_types, dead_code, non_snake_case)]
+#![expect(non_camel_case_types, non_snake_case)]
 
 use windows_sys::{
     Win32::{

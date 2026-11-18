@@ -1233,7 +1233,7 @@ pub trait RenderingBackend {
     /// is recommended instead.
     fn render_pass_texture(&self, render_pass: RenderPass) -> TextureId {
         let textures = self.render_pass_color_attachments(render_pass);
-        #[allow(clippy::len_zero)]
+        #[expect(clippy::len_zero)]
         if textures.len() == 0 {
             panic!("depth-only render pass");
         }

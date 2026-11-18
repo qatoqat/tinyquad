@@ -1,5 +1,6 @@
 // little helpers for LibX11
 use super::*;
+use core::ffi::{c_char, c_int, c_uchar, c_uint, c_ulong, c_void};
 
 impl LibX11 {
     pub unsafe fn update_system_dpi(&mut self, display: *mut Display) -> f32 {
@@ -11,7 +12,7 @@ impl LibX11 {
                 if !db.is_null() {
                     let mut value = XrmValue {
                         size: 0,
-                        addr: std::ptr::null_mut::<libc::c_char>(),
+                        addr: std::ptr::null_mut::<c_char>(),
                     };
                     let mut type_ = std::ptr::null_mut();
                     if (self.XrmGetResource)(
@@ -38,16 +39,16 @@ impl LibX11 {
             pub unsafe extern "C" fn _sapp_x11_error_handler(
                 mut _display: *mut Display,
                 event: *mut XErrorEvent,
-            ) -> libc::c_int {
+            ) -> c_int {
                 unsafe {
                     eprintln!("Error: {}", (*event).error_code);
-                    0 as libc::c_int
+                    0 as c_int
                 }
             }
 
             (self.XSetErrorHandler)(Some(
                 _sapp_x11_error_handler
-                    as unsafe extern "C" fn(_: *mut Display, _: *mut XErrorEvent) -> libc::c_int,
+                    as unsafe extern "C" fn(_: *mut Display, _: *mut XErrorEvent) -> c_int,
             ));
         }
     }
@@ -86,7 +87,7 @@ impl LibX11 {
                 c_title.as_ptr(),
                 c_title.as_ptr(),
                 std::ptr::null_mut(),
-                0 as libc::c_int,
+                0 as c_int,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
@@ -98,18 +99,18 @@ impl LibX11 {
                 self.extensions.utf8_string,
                 8,
                 PropModeReplace,
-                c_title.as_ptr() as *mut libc::c_uchar,
-                c_title.as_bytes().len() as libc::c_int,
+                c_title.as_ptr() as *mut c_uchar,
+                c_title.as_bytes().len() as c_int,
             );
             (self.XChangeProperty)(
                 display,
                 window,
                 self.extensions.net_wm_icon_name,
                 self.extensions.utf8_string,
-                8 as libc::c_int,
+                8 as c_int,
                 PropModeReplace,
-                c_title.as_ptr() as *mut libc::c_uchar,
-                c_title.as_bytes().len() as libc::c_int,
+                c_title.as_ptr() as *mut c_uchar,
+                c_title.as_bytes().len() as c_int,
             );
             (self.XFlush)(display);
         }
@@ -169,7 +170,7 @@ impl LibX11 {
         root: Window,
         display: *mut Display,
         visual: *mut Visual,
-        depth: libc::c_int,
+        depth: c_int,
         conf: &crate::conf::Conf,
     ) -> Window {
         unsafe {
@@ -191,8 +192,8 @@ impl LibX11 {
                 cursor: 0,
             };
             libc::memset(
-                &mut wa as *mut XSetWindowAttributes as *mut libc::c_void,
-                0 as libc::c_int,
+                &mut wa as *mut XSetWindowAttributes as *mut c_void,
+                0 as c_int,
                 ::std::mem::size_of::<XSetWindowAttributes>() as _,
             );
             let wamask = (CWBorderPixel | CWColormap | CWEventMask) as u32;
@@ -201,7 +202,7 @@ impl LibX11 {
                 let colormap = (self.XCreateColormap)(display, root, visual, AllocNone);
                 wa.colormap = colormap;
             }
-            wa.border_pixel = 0 as libc::c_int as libc::c_ulong;
+            wa.border_pixel = 0 as c_int as c_ulong;
             wa.event_mask = StructureNotifyMask
                 | KeyPressMask
                 | KeyReleaseMask
@@ -219,22 +220,22 @@ impl LibX11 {
             let window = (self.XCreateWindow)(
                 display,
                 root,
-                0 as libc::c_int,
-                0 as libc::c_int,
+                0 as c_int,
+                0 as c_int,
                 conf.window_width as _,
                 conf.window_height as _,
-                0 as libc::c_int as libc::c_uint,
+                0 as c_int as c_uint,
                 depth,
-                InputOutput as libc::c_uint,
+                InputOutput as c_uint,
                 visual,
-                wamask as libc::c_ulong,
+                wamask as c_ulong,
                 &mut wa,
             );
             self.release_error_handler(display);
             assert!(window != 0, "X11: Failed to create window");
 
             let mut protocols: [Atom; 1] = [self.extensions.wm_delete_window];
-            (self.XSetWMProtocols)(display, window, protocols.as_mut_ptr(), 1 as libc::c_int);
+            (self.XSetWMProtocols)(display, window, protocols.as_mut_ptr(), 1 as c_int);
             let hints = (self.XAllocSizeHints)();
             (*hints).flags |= PWinGravity;
             if !conf.window_resizable {
@@ -246,14 +247,14 @@ impl LibX11 {
             }
             (*hints).win_gravity = StaticGravity;
             (self.XSetWMNormalHints)(display, window, hints);
-            (self.XFree)(hints as *mut libc::c_void);
+            (self.XFree)(hints as *mut c_void);
 
             let class_hint = (self.XAllocClassHint)();
             let wm_class = std::ffi::CString::new(conf.platform.linux_wm_class).unwrap();
             (*class_hint).res_name = wm_class.as_ptr() as _;
             (*class_hint).res_class = wm_class.as_ptr() as _;
             (self.XSetClassHint)(display, window, class_hint);
-            (self.XFree)(class_hint as *mut libc::c_void);
+            (self.XFree)(class_hint as *mut c_void);
 
             if let Some(ref icon) = conf.icon {
                 self.update_window_icon(display, window, icon);

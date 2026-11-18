@@ -1,5 +1,3 @@
-#![allow(non_upper_case_globals, non_snake_case)]
-
 //! Clipboard implementation for X11
 //!
 //! Clipboard API on X11 is pretty weird
@@ -7,6 +5,7 @@
 //! so use this with caution.
 
 use super::libx11::*;
+use core::ffi::{c_char, c_int, c_long, c_ulong, c_void};
 
 unsafe fn get_clipboard(
     libx11: &mut LibX11,
@@ -69,11 +68,11 @@ pub(crate) unsafe fn get_property_bytes(
 ) -> Vec<u8> {
     unsafe {
         let mut bytes = Vec::new();
-        let mut buf = std::ptr::null_mut::<libc::c_char>();
-        let mut size: libc::c_ulong = 0;
+        let mut buf = std::ptr::null_mut::<c_char>();
+        let mut size: c_ulong = 0;
         let mut actual_type = 0 as Atom;
-        let mut actual_format: libc::c_int = 0;
-        let mut _size_after: libc::c_ulong = 0;
+        let mut actual_format: c_int = 0;
+        let mut _size_after: c_ulong = 0;
         let mut incr_mode = false;
         loop {
             (libx11.XGetWindowProperty)(
@@ -81,14 +80,14 @@ pub(crate) unsafe fn get_property_bytes(
                 window,
                 property,
                 0 as _,
-                libc::c_long::MAX,
+                c_long::MAX,
                 false as _,
                 AnyPropertyType,
                 &mut actual_type,
                 &mut actual_format,
                 &mut size,
                 &mut _size_after,
-                &mut buf as *mut *mut libc::c_char as _,
+                &mut buf as *mut *mut c_char as _,
             );
 
             if actual_type == libx11.extensions.incr {
@@ -96,13 +95,13 @@ pub(crate) unsafe fn get_property_bytes(
                 incr_mode = true;
             } else if size == 0 {
                 // no more data to read
-                (libx11.XFree)(buf as *mut libc::c_void);
+                (libx11.XFree)(buf as *mut c_void);
                 return bytes;
             } else {
                 let n_bits = match actual_format {
-                    8 => std::mem::size_of::<libc::c_char>(),
-                    16 => std::mem::size_of::<libc::c_int>(),
-                    32 => std::mem::size_of::<libc::c_long>(),
+                    8 => std::mem::size_of::<c_char>(),
+                    16 => std::mem::size_of::<c_int>(),
+                    32 => std::mem::size_of::<c_long>(),
                     _ => unreachable!(),
                 };
                 bytes.extend(std::slice::from_raw_parts(
@@ -112,7 +111,7 @@ pub(crate) unsafe fn get_property_bytes(
 
                 // if not in INCR mode, then we've got all the data
                 if !incr_mode {
-                    (libx11.XFree)(buf as *mut libc::c_void);
+                    (libx11.XFree)(buf as *mut c_void);
                     return bytes;
                 }
             }
@@ -189,7 +188,7 @@ pub(crate) unsafe fn respond_to_clipboard_request(
                 xselectionrequest.requestor,
                 xselectionrequest.property,
                 utf8_string,
-                8 as libc::c_int,
+                8 as c_int,
                 PropModeReplace,
                 message.as_bytes().as_ptr(),
                 message.len() as _,

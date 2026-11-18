@@ -1,4 +1,4 @@
-#![allow(non_camel_case_types, non_upper_case_globals, dead_code)]
+#![expect(non_camel_case_types, dead_code)]
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

@@ -482,7 +482,7 @@ pub struct ShaderImage {
 }
 
 fn get_uniform_location(program: GLuint, name: &str) -> Option<i32> {
-    let cname = CString::new(name).unwrap_or_else(|e| panic!("{}", e));
+    let cname = CString::new(name).unwrap_or_else(|e| panic!("{e}"));
     let location = unsafe { glGetUniformLocation(program, cname.as_ptr()) };
 
     if location == -1 {
@@ -819,7 +819,7 @@ impl GlContext {
     }
 }
 
-#[allow(clippy::field_reassign_with_default)]
+#[expect(clippy::field_reassign_with_default)]
 fn gl_info() -> ContextInfo {
     let version_string = unsafe { glGetString(super::gl::GL_VERSION) };
     let gl_version_string = unsafe { std::ffi::CStr::from_ptr(version_string as _) }
@@ -1247,7 +1247,7 @@ impl RenderingBackend for GlContext {
                 .get(*buffer_index)
                 .expect("buffer_index out of range");
 
-            let cname = CString::new(*name).unwrap_or_else(|e| panic!("{}", e));
+            let cname = CString::new(*name).unwrap_or_else(|e| panic!("{e}"));
             let attr_loc = unsafe { glGetAttribLocation(program, cname.as_ptr() as *const _) };
             let attr_loc = if attr_loc == -1 { None } else { Some(attr_loc) };
             let divisor = if layout.step_func == VertexStep::PerVertex {

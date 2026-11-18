@@ -1,4 +1,4 @@
-#![allow(non_camel_case_types, non_snake_case, dead_code)]
+#![expect(non_camel_case_types, non_snake_case)]
 
 #[cfg(target_os = "linux")]
 pub type EGLNativeDisplayType = *mut crate::native::linux_x11::libx11::Display;

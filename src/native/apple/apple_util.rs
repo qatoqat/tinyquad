@@ -4,7 +4,7 @@
 
 // Helpers around ObjC message sends (`msg_send!`) take `ObjcId` raw pointers;
 // callers are the platform event loops that already run inside `unsafe` blocks.
-#![allow(clippy::not_unsafe_ptr_arg_deref)]
+#![expect(clippy::not_unsafe_ptr_arg_deref)]
 
 use crate::{
     CursorIcon,

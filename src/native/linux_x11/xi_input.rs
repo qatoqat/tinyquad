@@ -1,51 +1,51 @@
-#![allow(non_upper_case_globals, non_snake_case)]
+#![expect(non_upper_case_globals, non_snake_case)]
 
 use super::{
     libx11::{self, _XPrivDisplay, Display, Window},
     xi_input,
 };
+use core::ffi::{c_char, c_double, c_int, c_uchar, c_ulong};
 
-pub const XIAllDevices: libc::c_int = 0 as libc::c_int;
-pub const XI_RawMotion: libc::c_int = 17 as libc::c_int;
-pub const XI_RawMotionMask: libc::c_int = (1 as libc::c_int) << XI_RawMotion;
+pub const XIAllDevices: c_int = 0 as c_int;
+pub const XI_RawMotion: c_int = 17 as c_int;
+pub const XI_RawMotionMask: c_int = (1 as c_int) << XI_RawMotion;
 
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct XIEventMask {
-    pub deviceid: libc::c_int,
-    pub mask_len: libc::c_int,
-    pub mask: *mut libc::c_uchar,
+    pub deviceid: c_int,
+    pub mask_len: c_int,
+    pub mask: *mut c_uchar,
 }
 
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct XIValuatorState {
-    pub mask_len: libc::c_int,
-    pub mask: *mut libc::c_uchar,
-    pub values: *mut libc::c_double,
+    pub mask_len: c_int,
+    pub mask: *mut c_uchar,
+    pub values: *mut c_double,
 }
 
-pub type Time = libc::c_ulong;
+pub type Time = c_ulong;
 
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct XIRawEvent {
-    pub type_0: libc::c_int,
-    pub serial: libc::c_ulong,
-    pub send_event: libc::c_int,
+    pub type_0: c_int,
+    pub serial: c_ulong,
+    pub send_event: c_int,
     pub display: *mut Display,
-    pub extension: libc::c_int,
-    pub evtype: libc::c_int,
+    pub extension: c_int,
+    pub evtype: c_int,
     pub time: Time,
-    pub deviceid: libc::c_int,
-    pub sourceid: libc::c_int,
-    pub detail: libc::c_int,
-    pub flags: libc::c_int,
+    pub deviceid: c_int,
+    pub sourceid: c_int,
+    pub detail: c_int,
+    pub flags: c_int,
     pub valuators: XIValuatorState,
-    pub raw_values: *mut libc::c_double,
+    pub raw_values: *mut c_double,
 }
 
-use core::ffi::c_int;
 crate::declare_module!(
     LibXi,
     "libXi.so",
@@ -74,7 +74,7 @@ impl LibXi {
 
             if (libx11.XQueryExtension)(
                 display,
-                b"XInputExtension\x00" as *const u8 as *const libc::c_char,
+                b"XInputExtension\x00" as *const u8 as *const c_char,
                 &mut xi_opcode,
                 &mut ev,
                 &mut err,
@@ -94,7 +94,7 @@ impl LibXi {
             let mut mask = XI_RawMotionMask;
             let mut masks = XIEventMask {
                 deviceid: XIAllDevices,
-                mask_len: ::std::mem::size_of::<libc::c_int>() as _,
+                mask_len: ::std::mem::size_of::<c_int>() as _,
                 mask: &mut mask as *mut _ as *mut _,
             };
 
@@ -106,7 +106,7 @@ impl LibXi {
                     .offset((*(display as _XPrivDisplay)).default_screen as isize))
                 .root,
                 &mut masks,
-                1 as libc::c_int,
+                1 as c_int,
             );
             self.xi_extension_opcode = Some(xi_opcode);
         }

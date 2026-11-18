@@ -349,7 +349,6 @@ impl Stage {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn view_from(eye: Vec3, right: Vec3, up: Vec3, forward: Vec3) -> Mat4 {
     Mat4::from_cols_array_2d(&[
         [right.x, up.x, -forward.x, 0.0],

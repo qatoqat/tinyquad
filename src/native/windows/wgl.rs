@@ -1,4 +1,4 @@
-#![allow(dead_code, non_snake_case)]
+#![expect(dead_code, non_snake_case)]
 use std::ffi::{CStr, c_char};
 
 use windows_sys::{
@@ -297,7 +297,7 @@ impl Wgl {
             assert!(usable_count > 0);
 
             let mut pixel_format = 0;
-            #[allow(clippy::field_reassign_with_default)]
+            #[expect(clippy::field_reassign_with_default)]
             {
                 let mut desired = GlFbconfig::default();
                 desired.red_bits = 8;

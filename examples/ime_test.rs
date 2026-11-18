@@ -555,7 +555,7 @@ impl EventHandler for Stage {
 // Helpers
 // ============================================================================
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn rect(
     v: &mut Vec<ColorVert>,
     i: &mut Vec<u16>,
@@ -591,7 +591,7 @@ fn rect(
     i.extend([b, b + 1, b + 2, b, b + 2, b + 3]);
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn outline(
     v: &mut Vec<ColorVert>,
     i: &mut Vec<u16>,
@@ -610,7 +610,7 @@ fn outline(
     rect(v, i, x + w - t, y, t, h, c, sw, sh);
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn glyph_quad(
     v: &mut Vec<TextVert>,
     i: &mut Vec<u16>,

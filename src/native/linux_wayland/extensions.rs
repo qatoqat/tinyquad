@@ -1,5 +1,4 @@
-#![allow(
-    unused_variables,
+#![expect(
     dead_code,
     non_upper_case_globals,
     static_mut_refs,

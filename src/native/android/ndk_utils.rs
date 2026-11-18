@@ -16,7 +16,7 @@ macro_rules! new_object {
         let sig = std::ffi::CString::new($sig).unwrap();
         let class = find_class($env, class.as_ptr() as _);
 
-        let constructor = get_method_id($env, class, b"<init>\0".as_ptr() as _, sig.as_ptr() as _);
+        let constructor = get_method_id($env, class, c"<init>".as_ptr(), sig.as_ptr() as _);
 
         new_object($env, class, constructor, $($args,)*)
     }};

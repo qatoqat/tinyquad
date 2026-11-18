@@ -53,7 +53,7 @@ impl ClipboardContext {
             if let Some(serial) = display.keyboard_context.enter_serial {
                 let data_source = self.new_data_source();
                 // only support copying utf8 strings
-                let mime_type = std::ffi::CString::new("UTF8_STRING").unwrap();
+                let mime_type = c"UTF8_STRING";
                 wl_request!(
                     display.client,
                     data_source,
@@ -73,7 +73,7 @@ impl ClipboardContext {
 
     unsafe fn respond_to_clipboard_request(&mut self, mime_type: &str, fd: c_int) {
         unsafe {
-            #![allow(clippy::single_match)]
+            #![expect(clippy::single_match)]
             match mime_type {
                 "UTF8_STRING" => {
                     libc::write(fd, self.content.as_ptr() as _, self.content.len());
