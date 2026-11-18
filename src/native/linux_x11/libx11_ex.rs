@@ -21,10 +21,10 @@ impl LibX11 {
                         &mut type_,
                         &mut value,
                     ) != 0
+                        && !type_.is_null()
+                        && libc::strcmp(type_, c"String".as_ptr() as _) == 0
                     {
-                        if !type_.is_null() && libc::strcmp(type_, c"String".as_ptr() as _) == 0 {
-                            dpi_scale = libc::atof(value.addr as *const _) as f32 / 96.0;
-                        }
+                        dpi_scale = libc::atof(value.addr as *const _) as f32 / 96.0;
                     }
                     (self.XrmDestroyDatabase)(db);
                 }
@@ -146,8 +146,7 @@ impl LibX11 {
                         let b = pixels[2] as u32;
                         let a = pixels[3] as u32;
 
-                        *target.next().unwrap() =
-                            ((r << 16) | (g << 8) | (b << 0) | (a << 24)) as usize;
+                        *target.next().unwrap() = ((r << 16) | (g << 8) | b | (a << 24)) as usize;
                     }
                 }
             }

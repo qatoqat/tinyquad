@@ -454,10 +454,8 @@ unsafe fn choose_fbconfig(
             if 0 == glx_attrib(n, GLX_RENDER_TYPE) & GLX_RGBA_BIT {
                 continue;
             }
-            if 0 == glx_attrib(n, GLX_DRAWABLE_TYPE) & GLX_WINDOW_BIT {
-                if trust_window_bit {
-                    continue;
-                }
+            if 0 == glx_attrib(n, GLX_DRAWABLE_TYPE) & GLX_WINDOW_BIT && trust_window_bit {
+                continue;
             }
 
             u.red_bits = glx_attrib(n, GLX_RED_SIZE);

@@ -1,10 +1,7 @@
 #![doc = include_str!("../README.md")]
-#![allow(
-    clippy::collapsible_if,
-    clippy::collapsible_else_if,
-    clippy::unused_unit,
-    clippy::identity_op,
-    clippy::missing_safety_doc
+#![expect(
+    clippy::missing_safety_doc,
+    reason = "most public `unsafe fn`s are thin wrappers over raw platform/GL bindings"
 )]
 
 pub mod conf;

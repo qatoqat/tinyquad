@@ -155,7 +155,7 @@ impl VertexFormat {
     /// Size in bytes
     pub fn size_bytes(&self) -> i32 {
         match self {
-            VertexFormat::Float1 => 1 * 4,
+            VertexFormat::Float1 => 4,
             VertexFormat::Float2 => 2 * 4,
             VertexFormat::Float3 => 3 * 4,
             VertexFormat::Float4 => 4 * 4,
@@ -163,11 +163,11 @@ impl VertexFormat {
             VertexFormat::Byte2 => 2,
             VertexFormat::Byte3 => 3,
             VertexFormat::Byte4 => 4,
-            VertexFormat::Short1 => 1 * 2,
+            VertexFormat::Short1 => 2,
             VertexFormat::Short2 => 2 * 2,
             VertexFormat::Short3 => 3 * 2,
             VertexFormat::Short4 => 4 * 2,
-            VertexFormat::Int1 => 1 * 4,
+            VertexFormat::Int1 => 4,
             VertexFormat::Int2 => 2 * 4,
             VertexFormat::Int3 => 3 * 4,
             VertexFormat::Int4 => 4 * 4,
@@ -332,7 +332,7 @@ impl TextureFormat {
             TextureFormat::RGBA16F => 8 * square,
             TextureFormat::Depth => 2 * square,
             TextureFormat::Depth32 => 4 * square,
-            TextureFormat::Alpha => 1 * square,
+            TextureFormat::Alpha => square,
         }
     }
 }

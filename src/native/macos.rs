@@ -117,12 +117,11 @@ impl MacosDisplay {
         let event_type: u64 = unsafe { msg_send![event, type] };
         if event_type == NSEventType::NSKeyUp as u64 {
             let mods = get_event_key_modifier(event);
-            if mods.logo {
-                if let Some(key) = get_event_keycode(event) {
-                    if let Some(event_handler) = self.context() {
-                        event_handler.key_up_event(key, mods);
-                    }
-                }
+            if mods.logo
+                && let Some(key) = get_event_keycode(event)
+                && let Some(event_handler) = self.context()
+            {
+                event_handler.key_up_event(key, mods);
             }
         }
     }
@@ -372,10 +371,10 @@ pub fn define_cocoa_window_delegate() -> *const Class {
 
     extern "C" fn window_did_resize(this: &Object, _: Sel, _: ObjcId) {
         let payload = get_window_payload(this);
-        if let Some((w, h)) = unsafe { payload.update_dimensions() } {
-            if let Some(event_handler) = payload.context() {
-                event_handler.resize_event(w as _, h as _);
-            }
+        if let Some((w, h)) = unsafe { payload.update_dimensions() }
+            && let Some(event_handler) = payload.context()
+        {
+            event_handler.resize_event(w as _, h as _);
         }
     }
 
@@ -395,10 +394,10 @@ pub fn define_cocoa_window_delegate() -> *const Class {
 
     extern "C" fn window_did_change_screen(this: &Object, _: Sel, _: ObjcId) {
         let payload = get_window_payload(this);
-        if let Some((w, h)) = unsafe { payload.update_dimensions() } {
-            if let Some(event_handler) = payload.context() {
-                event_handler.resize_event(w as _, h as _);
-            }
+        if let Some((w, h)) = unsafe { payload.update_dimensions() }
+            && let Some(event_handler) = payload.context()
+        {
+            event_handler.resize_event(w as _, h as _);
         }
     }
     extern "C" fn window_did_enter_fullscreen(this: &Object, _: Sel, _: ObjcId) {
@@ -588,26 +587,26 @@ unsafe fn view_base_decl(decl: &mut ClassDecl) {
             let payload = get_window_payload(this);
             let mods = get_event_key_modifier(event);
             let repeat: bool = unsafe { msg_send!(event, isARepeat) };
-            if let Some(key) = get_event_keycode(event) {
-                if let Some(event_handler) = payload.context() {
-                    event_handler.key_down_event(key, mods, repeat);
-                }
+            if let Some(key) = get_event_keycode(event)
+                && let Some(event_handler) = payload.context()
+            {
+                event_handler.key_down_event(key, mods, repeat);
             }
 
-            if let Some(character) = get_event_char(event) {
-                if let Some(event_handler) = payload.context() {
-                    event_handler.char_event(character, mods, repeat);
-                }
+            if let Some(character) = get_event_char(event)
+                && let Some(event_handler) = payload.context()
+            {
+                event_handler.char_event(character, mods, repeat);
             }
         }
 
         extern "C" fn key_up(this: &Object, _sel: Sel, event: ObjcId) {
             let payload = get_window_payload(this);
             let mods = get_event_key_modifier(event);
-            if let Some(key) = get_event_keycode(event) {
-                if let Some(event_handler) = payload.context() {
-                    event_handler.key_up_event(key, mods);
-                }
+            if let Some(key) = get_event_keycode(event)
+                && let Some(event_handler) = payload.context()
+            {
+                event_handler.key_up_event(key, mods);
             }
         }
 
@@ -853,10 +852,10 @@ pub fn define_opengl_view_class() -> *const Class {
     extern "C" fn reshape(this: &Object, _sel: Sel) {
         let payload = get_window_payload(this);
         unsafe {
-            if let Some((w, h)) = payload.update_dimensions() {
-                if let Some(event_handler) = payload.context() {
-                    event_handler.resize_event(w as _, h as _);
-                }
+            if let Some((w, h)) = payload.update_dimensions()
+                && let Some(event_handler) = payload.context()
+            {
+                event_handler.resize_event(w as _, h as _);
             }
         }
     }
@@ -866,10 +865,10 @@ pub fn define_opengl_view_class() -> *const Class {
         let payload = get_window_payload(this);
         unsafe {
             // Need this update_dimensions so it sets right dpi_scale at the beggining
-            if let Some((w, h)) = payload.update_dimensions() {
-                if let Some(event_handler) = payload.context() {
-                    event_handler.resize_event(w as _, h as _);
-                }
+            if let Some((w, h)) = payload.update_dimensions()
+                && let Some(event_handler) = payload.context()
+            {
+                event_handler.resize_event(w as _, h as _);
             }
             let current_runloop = msg_send_![class!(NSRunLoop), currentRunLoop];
             let current_mode: ObjcId = msg_send![current_runloop, currentMode];
@@ -921,10 +920,10 @@ pub fn define_metal_view_class() -> *const Class {
         unsafe {
             // Per-frame refresh matching the OpenGL path — otherwise
             // dpi_scale stays at the startup 1.0 default on Retina.
-            if let Some((w, h)) = payload.update_dimensions() {
-                if let Some(event_handler) = payload.context() {
-                    event_handler.resize_event(w as _, h as _);
-                }
+            if let Some((w, h)) = payload.update_dimensions()
+                && let Some(event_handler) = payload.context()
+            {
+                event_handler.resize_event(w as _, h as _);
             }
             let current_runloop = msg_send_![class!(NSRunLoop), currentRunLoop];
             let current_mode: ObjcId = msg_send![current_runloop, currentMode];

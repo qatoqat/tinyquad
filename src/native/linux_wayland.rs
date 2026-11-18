@@ -314,10 +314,10 @@ impl KeyboardContext {
             // To obtain the underlying character, we do need to provide the modifiers
             let keysym = (libxkb.xkb_state_key_get_one_sym)(xkb_state, key + 8);
             let chr = (libxkb.xkb_keysym_to_utf32)(keysym);
-            if chr > 0 {
-                if let Some(chr) = char::from_u32(chr) {
-                    events.push(WaylandEvent::Char(chr, keymods, repeat));
-                }
+            if chr > 0
+                && let Some(chr) = char::from_u32(chr)
+            {
+                events.push(WaylandEvent::Char(chr, keymods, repeat));
             }
         }
     }
@@ -899,12 +899,12 @@ unsafe extern "C" fn touch_handle_up(
 ) {
     unsafe {
         let display: &mut WaylandPayload = &mut *(data as *mut _);
-        if display.focused_window == display.surface {
-            if let Some((x, y)) = display.touch_positions.remove(&id) {
-                display
-                    .events
-                    .push(WaylandEvent::Touch(crate::TouchPhase::Ended, id as _, x, y));
-            }
+        if display.focused_window == display.surface
+            && let Some((x, y)) = display.touch_positions.remove(&id)
+        {
+            display
+                .events
+                .push(WaylandEvent::Touch(crate::TouchPhase::Ended, id as _, x, y));
         }
     }
 }

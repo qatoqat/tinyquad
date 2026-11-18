@@ -115,10 +115,10 @@ fn dispatch_message(payload: &mut IosDisplay, msg: Message) {
             }
         }
         Message::Character { character } => {
-            if let Some(character) = char::from_u32(character) {
-                if let Some(ref mut event_handler) = payload.event_handler {
-                    event_handler.char_event(character, Default::default(), false);
-                }
+            if let Some(character) = char::from_u32(character)
+                && let Some(ref mut event_handler) = payload.event_handler
+            {
+                event_handler.char_event(character, Default::default(), false);
             }
         }
         Message::KeyDown { keycode } => {
