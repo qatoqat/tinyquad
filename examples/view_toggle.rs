@@ -1,6 +1,6 @@
 //! A tiny Fez-like: a 3D world that is played as a 2D platformer, seen
 //! through an orthographic camera that snaps between four side views and a
-//! top-down view.
+//! 3/4 top-down view (45 degrees, tops and fronts both visible).
 //!
 //! In a side view the depth axis does not exist for the player: any
 //! platform top that lines up with him *on screen* can be walked onto, no
@@ -57,6 +57,9 @@ const FOCUS_LIFT: f32 = 2.0;
 const FOLLOW_RATE: f32 = 6.0;
 const YAW_TIME: f32 = 0.3;
 const PITCH_TIME: f32 = 0.4;
+/// The "top-down" view is a classic 3/4 view: tilted 45 degrees, where the
+/// stretch below makes tops and fronts both square, so both stay readable.
+const TOP_PITCH: f32 = std::f32::consts::FRAC_PI_4;
 
 const SKY: (f32, f32, f32, f32) = (0.45, 0.68, 0.90, 1.0);
 const WHITE: [f32; 3] = [1.0, 1.0, 1.0];
@@ -420,16 +423,17 @@ impl Tween {
 /// up      = Z * cos pitch + depth * sin pitch   screen y
 /// ```
 ///
-/// Pitch 0 is an exact side view (up = Z), pitch 90 degrees an exact
-/// top-down view (up = depth, forward = -Z).
+/// Pitch 0 is an exact side view (up = Z), pitch 90 degrees would be an
+/// exact top-down view (up = depth, forward = -Z); the game's top view uses
+/// 45 degrees so the fronts of things stay visible next to their tops.
 ///
 /// Tilting foreshortens the scene along screen y: walls shrink by
 /// `cos pitch`, the ground by `sin pitch`. To keep textures at their true
 /// ratio, screen y is stretched by `1 / max(sin pitch, cos pitch)`. That is
 /// exactly 1 in both resting views, and during the transition whichever
 /// plane faces the camera more keeps square texels, while the other one is
-/// never squashed below `tan` of the smaller angle (both are square at 45
-/// degrees).
+/// never squashed below `tan` of the smaller angle. At 45 degrees, the
+/// 3/4 view, both are square at once.
 fn view_projection(focus: Vec3, yaw: f32, pitch: f32, aspect: f32) -> Mat4 {
     let (sin_yaw, cos_yaw) = yaw.sin_cos();
     let (sin_pitch, cos_pitch) = pitch.sin_cos();
@@ -908,11 +912,8 @@ impl Stage {
 
     fn toggle_top_down(&mut self) {
         self.game.top_down = !self.game.top_down;
-        self.pitch.retarget(if self.game.top_down {
-            std::f32::consts::FRAC_PI_2
-        } else {
-            0.0
-        });
+        self.pitch
+            .retarget(if self.game.top_down { TOP_PITCH } else { 0.0 });
     }
 
     fn fixed_step(&mut self) {
